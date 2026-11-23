@@ -3,6 +3,7 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Flame,
   Globe,
   Loader2,
   MapPin,
@@ -22,9 +23,10 @@ import EarthViewport, {
 import BaseInspector from './components/BaseInspector';
 import SmartAISearchPanel, { type AISearchResult } from './components/SmartAISearchPanel';
 import RadarScanPanel, { type RadarDetection } from './components/RadarScanPanel';
+import RadarDetectionCard from './components/RadarDetectionCard';
 import StreetViewStudio, { type StreetViewLocation } from './components/StreetViewStudio';
+import ThermalOrdnanceScanner from './components/ThermalOrdnanceScanner';
 import {
-  type BaseScale,
   bearingDegrees,
   bearingToCompassKm,
   BRANCH_META,
@@ -34,6 +36,7 @@ import {
   type MilitaryBase,
   RADAR_PRESETS,
   type RadarPreset,
+  type RadarTargetFilter,
   REGION_META,
   type RegionType,
   THAI_MILITARY_BASES,
@@ -66,6 +69,12 @@ function angularLagBehindBeam(beamDeg: number, targetDeg: number): number {
   return (((beamDeg - targetDeg) % 360) + 360) % 360;
 }
 
+function matchesTargetFilter(base: MilitaryBase, filter: RadarTargetFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'fighter') return Boolean(base.isFighterBase);
+  return base.scale === filter;
+}
+
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('radar');
@@ -73,19 +82,22 @@ export default function App() {
   // Catalog search & filters
   const [searchText, setSearchText] = useState('');
   const [branchFilter, setBranchFilter] = useState<BranchType | 'all'>('all');
-  const [scaleFilterCatalog, setScaleFilterCatalog] = useState<BaseScale | 'all'>('all');
+  const [scaleFilterCatalog, setScaleFilterCatalog] = useState<RadarTargetFilter>('all');
   const [regionFilter, setRegionFilter] = useState<RegionType | 'all'>('all');
   const [sortMode, setSortMode] = useState<SortMode>('border');
 
-  // Radar scanner state (default active, sweeping all of Thailand focusing on smaller camps)
+  // Radar scanner state (default active, sweeping all of Thailand focusing on F-16 & fighter jet bases)
   const [radarActive, setRadarActive] = useState(true);
   const [radarScanning, setRadarScanning] = useState(true);
   const [activePresetId, setActivePresetId] = useState<string>('all-thailand');
   const [radarCenter, setRadarCenter] = useState({ lat: 13.45, lng: 101.25 });
   const [radarRadiusKm, setRadarRadiusKm] = useState(820);
-  const [radarScaleFilter, setRadarScaleFilter] = useState<BaseScale | 'all'>('camp');
+  const [radarScaleFilter, setRadarScaleFilter] = useState<RadarTargetFilter>('fighter');
   const [sweepAngle, setSweepAngle] = useState(0);
   const [detectedIds, setDetectedIds] = useState<string[]>([]);
+  const [radarCardTargetId, setRadarCardTargetId] = useState<string | null>(null);
+  const [radarCardDismissed, setRadarCardDismissed] = useState(false);
+  const lastRadarCardAutoSwitchRef = useRef(0);
 
   // Live OpenStreetMap discovered small camps
   const [osmSites, setOsmSites] = useState<MilitaryBase[]>([]);
@@ -108,6 +120,9 @@ export default function App() {
   const [streetViewLocation, setStreetViewLocation] = useState<StreetViewLocation | null>(null);
   const [streetSplitMode, setStreetSplitMode] = useState(true);
   const [streetDropMode, setStreetDropMode] = useState(false);
+
+  // FLIR Thermal & Public Arsenal Infrastructure Scanner modal state
+  const [thermalScanBase, setThermalScanBase] = useState<MilitaryBase | null>(null);
 
   // OpenStreetMap Nominatim geocoding for any Thai location
   const [geocodeResults, setGeocodeResults] = useState<GeocodePlace[]>([]);
@@ -157,10 +172,7 @@ export default function App() {
   // Compute all candidate installations inside current radar radius & scale filter
   const radarCandidates = useMemo(() => {
     return allBases
-      .filter((b) => {
-        if (radarScaleFilter !== 'all' && b.scale !== radarScaleFilter) return false;
-        return true;
-      })
+      .filter((b) => matchesTargetFilter(b, radarScaleFilter))
       .map((base) => {
         const distanceKm = haversineKm(radarCenter.lat, radarCenter.lng, base.lat, base.lng);
         const bearingDeg = bearingDegrees(radarCenter.lat, radarCenter.lng, base.lat, base.lng);
@@ -201,6 +213,7 @@ export default function App() {
         }
 
         if (newlyHit.length > 0) {
+          const hitId = newlyHit[newlyHit.length - 1];
           setDetectedIds((existing) => {
             const existingSet = new Set(existing);
             let changed = false;
@@ -212,6 +225,12 @@ export default function App() {
             }
             return changed ? Array.from(existingSet) : existing;
           });
+
+          // Smoothly update live visual capture card (max ~1 switch per 2.2s so user can see each base clearly)
+          if (now - lastRadarCardAutoSwitchRef.current >= 2200) {
+            lastRadarCardAutoSwitchRef.current = now;
+            setRadarCardTargetId(hitId);
+          }
         }
 
         // Throttle React state updates to ~24 fps for silky smooth WebGL rendering
@@ -258,6 +277,24 @@ export default function App() {
     [recentPingKey]
   );
 
+  // Ordered list of locked radar detections for the floating target image card
+  const lockedRadarDetections = useMemo(
+    () => radarDetections.filter((d) => d.detected),
+    [radarDetections]
+  );
+
+  const activeRadarCardIndex = useMemo(() => {
+    if (lockedRadarDetections.length === 0) return -1;
+    if (radarCardTargetId) {
+      const idx = lockedRadarDetections.findIndex((d) => d.base.id === radarCardTargetId);
+      if (idx !== -1) return idx;
+    }
+    return 0;
+  }, [lockedRadarDetections, radarCardTargetId]);
+
+  const activeRadarCardDetection =
+    activeRadarCardIndex >= 0 ? lockedRadarDetections[activeRadarCardIndex] : null;
+
   const issueCamera = (cmd: Omit<CameraCommand, 'nonce'>) => {
     setIsOrbiting(false);
     setCameraCommand({ ...cmd, nonce: Date.now() + Math.random() });
@@ -284,6 +321,9 @@ export default function App() {
     setRadarCenter({ lat: preset.lat, lng: preset.lng });
     setRadarRadiusKm(preset.radiusKm);
     setDetectedIds([]);
+    setRadarCardTargetId(null);
+    setRadarCardDismissed(false);
+    lastRadarCardAutoSwitchRef.current = 0;
     setSweepAngle(0);
     sweepAngleRef.current = 0;
     setRadarActive(true);
@@ -301,6 +341,9 @@ export default function App() {
     setActivePresetId('custom');
     setRadarCenter(pt);
     setDetectedIds([]);
+    setRadarCardTargetId(null);
+    setRadarCardDismissed(false);
+    lastRadarCardAutoSwitchRef.current = 0;
     setSweepAngle(0);
     sweepAngleRef.current = 0;
     setRadarScanning(true);
@@ -311,6 +354,9 @@ export default function App() {
 
   const handleResetSweep = () => {
     setDetectedIds([]);
+    setRadarCardTargetId(null);
+    setRadarCardDismissed(false);
+    lastRadarCardAutoSwitchRef.current = 0;
     setSweepAngle(0);
     sweepAngleRef.current = 0;
     setRadarScanning(true);
@@ -347,8 +393,8 @@ export default function App() {
       if (discovered.length === 0) {
         setOsmError('រកមិនឃើញបន្ទាយតូចបន្ថែមក្នុងរង្វង់នេះពី OpenStreetMap ទេ។ សូមចុចលើខេត្តផ្សេងទៀត។');
       } else {
-        // Ensure OSM small camps are visible even if user was viewing 'major' only
-        if (radarScaleFilter === 'major') {
+        // Ensure OSM small camps are visible even if user was viewing 'major' or 'fighter' only
+        if (radarScaleFilter === 'major' || radarScaleFilter === 'fighter') {
           setRadarScaleFilter('all');
         }
         setRadarScanning(true);
@@ -556,7 +602,7 @@ export default function App() {
     const q = searchText.trim().toLowerCase();
     const list = allBases.filter((b) => {
       if (branchFilter !== 'all' && b.branch !== branchFilter) return false;
-      if (scaleFilterCatalog !== 'all' && b.scale !== scaleFilterCatalog) return false;
+      if (!matchesTargetFilter(b, scaleFilterCatalog)) return false;
       if (regionFilter !== 'all' && b.region !== regionFilter) return false;
       if (!q) return true;
       return (
@@ -566,7 +612,10 @@ export default function App() {
         b.provinceKm.toLowerCase().includes(q) ||
         b.provinceEn.toLowerCase().includes(q) ||
         b.commandKm.toLowerCase().includes(q) ||
-        b.summaryKm.toLowerCase().includes(q)
+        b.summaryKm.toLowerCase().includes(q) ||
+        (b.aircraftTypes ?? []).some((a) => a.toLowerCase().includes(q)) ||
+        b.keyUnitsKm.some((u) => u.toLowerCase().includes(q)) ||
+        (b.runwayOrPort ?? '').toLowerCase().includes(q)
       );
     });
 
@@ -588,7 +637,7 @@ export default function App() {
   const displayedMapBases = useMemo(() => {
     let baseList: MilitaryBase[];
     if (radarActive) {
-      baseList = allBases.filter((b) => radarScaleFilter === 'all' || b.scale === radarScaleFilter);
+      baseList = allBases.filter((b) => matchesTargetFilter(b, radarScaleFilter));
     } else if (sidebarTab === 'ai') {
       baseList = allBases;
     } else {
@@ -644,11 +693,13 @@ export default function App() {
   const countsSummary = useMemo(() => {
     let major = 0;
     let camp = 0;
+    let fighter = 0;
     for (const b of allBases) {
       if (b.scale === 'camp') camp += 1;
       else major += 1;
+      if (b.isFighterBase) fighter += 1;
     }
-    return { total: allBases.length, major, camp };
+    return { total: allBases.length, major, camp, fighter };
   }, [allBases]);
 
   return (
@@ -704,6 +755,26 @@ export default function App() {
             }`}
           >
             បញ្ជីបន្ទាយ
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const target =
+                selectedBase ??
+                activeRadarCardDetection?.base ??
+                THAI_MILITARY_BASES.find((b) => b.id === 'rtaf-korat-wing1') ??
+                THAI_MILITARY_BASES[0];
+              setThermalScanBase(target);
+            }}
+            className={`whitespace-nowrap shrink-0 py-1 transition-colors flex items-center gap-1 ${
+              thermalScanBase
+                ? 'text-orange-300 border-b border-orange-400'
+                : 'text-orange-300/90 hover:text-orange-200'
+            }`}
+          >
+            <Flame className="w-3.5 h-3.5 text-orange-400" />
+            <span>ស្កេនកំដៅ FLIR</span>
           </button>
 
           <button
@@ -816,18 +887,33 @@ export default function App() {
             </div>
 
             {/* Mobile-only quick tools strip (since desktop header nav hides on < md) */}
-            <div className="md:hidden px-3.5 py-2 border-b border-slate-800/70 grid grid-cols-2 gap-1.5 bg-[#080C15]">
+            <div className="md:hidden px-3.5 py-2 border-b border-slate-800/70 grid grid-cols-3 gap-1.5 bg-[#080C15]">
+              <button
+                type="button"
+                onClick={() => {
+                  const target =
+                    selectedBase ??
+                    activeRadarCardDetection?.base ??
+                    THAI_MILITARY_BASES.find((b) => b.id === 'rtaf-korat-wing1') ??
+                    THAI_MILITARY_BASES[0];
+                  setThermalScanBase(target);
+                }}
+                className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[10.5px] font-medium bg-orange-500/18 text-orange-200 border border-orange-500/40 transition-colors"
+              >
+                <Flame className="w-3 h-3 text-orange-400 shrink-0" />
+                <span>កំដៅ FLIR</span>
+              </button>
               <button
                 type="button"
                 onClick={handleOpenStreetViewQuick}
-                className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+                className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[10.5px] font-medium transition-colors ${
                   streetViewLocation || streetDropMode
                     ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
                     : 'bg-[#101724] text-slate-300 border border-slate-800'
                 }`}
               >
-                <Camera className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Street View 4K</span>
+                <Camera className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span>4K View</span>
               </button>
               <button
                 type="button"
@@ -840,13 +926,13 @@ export default function App() {
                     return !v;
                   });
                 }}
-                className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+                className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[10.5px] font-medium transition-colors ${
                   measureMode
                     ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
                     : 'bg-[#101724] text-slate-300 border border-slate-800'
                 }`}
               >
-                <Ruler className="w-3.5 h-3.5 text-cyan-400" />
+                <Ruler className="w-3 h-3 text-cyan-400 shrink-0" />
                 <span>វាស់ចម្ងាយ</span>
               </button>
             </div>
@@ -858,6 +944,9 @@ export default function App() {
                 onChangeRadius={(km) => {
                   setRadarRadiusKm(km);
                   setDetectedIds([]);
+                  setRadarCardTargetId(null);
+                  setRadarCardDismissed(false);
+                  lastRadarCardAutoSwitchRef.current = 0;
                   setSweepAngle(0);
                   sweepAngleRef.current = 0;
                   setRadarScanning(true);
@@ -870,6 +959,9 @@ export default function App() {
                 onChangeScaleFilter={(s) => {
                   setRadarScaleFilter(s);
                   setDetectedIds([]);
+                  setRadarCardTargetId(null);
+                  setRadarCardDismissed(false);
+                  lastRadarCardAutoSwitchRef.current = 0;
                   setSweepAngle(0);
                   sweepAngleRef.current = 0;
                   setRadarScanning(true);
@@ -916,7 +1008,7 @@ export default function App() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handlePlaceGeocodeSearch();
                       }}
-                      placeholder="ស្វែងរកឈ្មោះបន្ទាយ ខេត្ត ឬទីក្រុងថៃ..."
+                      placeholder="ស្វែងរកឈ្មោះបន្ទាយ F-16 យន្តហោះ ឬខេត្ត..."
                       className="w-full pl-9 pr-8 py-2 rounded-lg bg-[#070B13] border border-slate-800 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/70"
                     />
                     {searchText && (
@@ -935,11 +1027,12 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Scale Filter: Small Camps vs Major Bases */}
-                  <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-[#070B13] border border-slate-800/80">
+                  {/* Scale Filter: All, Fighter Jets, Small Camps, Major Bases */}
+                  <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#070B13] border border-slate-800/80">
                     {(
                       [
                         { id: 'all', label: `ទាំងអស់ (${countsSummary.total})` },
+                        { id: 'fighter', label: `យន្តហោះចម្បាំង (${countsSummary.fighter})` },
                         { id: 'camp', label: `បន្ទាយតូច (${countsSummary.camp})` },
                         { id: 'major', label: `មូលដ្ឋានធំ (${countsSummary.major})` },
                       ] as const
@@ -950,7 +1043,9 @@ export default function App() {
                         onClick={() => setScaleFilterCatalog(item.id)}
                         className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-colors whitespace-nowrap ${
                           scaleFilterCatalog === item.id
-                            ? 'bg-[#162336] text-cyan-200'
+                            ? item.id === 'fighter'
+                              ? 'bg-sky-500/20 text-sky-200'
+                              : 'bg-[#162336] text-cyan-200'
                             : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
@@ -1118,8 +1213,17 @@ export default function App() {
                               {base.nameEn}
                             </div>
                             <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
-                              <span className={base.scale === 'camp' ? 'text-emerald-400' : meta.textClass}>
-                                {base.scale === 'camp' ? 'បន្ទាយតូច' : meta.shortKm}
+                              <span
+                                className={
+                                  base.aircraftTypes?.length
+                                    ? 'text-sky-400 font-medium truncate max-w-[125px]'
+                                    : base.scale === 'camp'
+                                      ? 'text-emerald-400 shrink-0'
+                                      : `${meta.textClass} shrink-0`
+                                }
+                              >
+                                {base.aircraftTypes?.[0] ??
+                                  (base.scale === 'camp' ? 'បន្ទាយតូច' : meta.shortKm)}
                               </span>
                               <span aria-hidden="true">·</span>
                               <span className="truncate">{base.provinceKm}</span>
@@ -1237,6 +1341,46 @@ export default function App() {
             onPickStreetViewPoint={handlePickStreetViewPoint}
           />
 
+          {/* Live Radar Target Acquisition Image Card (displays real aerial/street photo when radar detects a base) */}
+          {radarActive &&
+            !measureMode &&
+            !streetViewLocation &&
+            activeRadarCardDetection &&
+            (!radarCardDismissed ? (
+              <RadarDetectionCard
+                detection={activeRadarCardDetection}
+                currentIndex={activeRadarCardIndex}
+                totalDetected={lockedRadarDetections.length}
+                onPrev={() => {
+                  const len = lockedRadarDetections.length;
+                  if (len <= 1) return;
+                  const nextIdx = (activeRadarCardIndex - 1 + len) % len;
+                  lastRadarCardAutoSwitchRef.current = performance.now() + 4000;
+                  setRadarCardTargetId(lockedRadarDetections[nextIdx].base.id);
+                }}
+                onNext={() => {
+                  const len = lockedRadarDetections.length;
+                  if (len <= 1) return;
+                  const nextIdx = (activeRadarCardIndex + 1) % len;
+                  lastRadarCardAutoSwitchRef.current = performance.now() + 4000;
+                  setRadarCardTargetId(lockedRadarDetections[nextIdx].base.id);
+                }}
+                onInspectBase={handleSelectBase}
+                onOpenStreetView={handleOpenStreetViewForBase}
+                onOpenThermalScan={(b) => setThermalScanBase(b)}
+                onDismiss={() => setRadarCardDismissed(true)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setRadarCardDismissed(false)}
+                className="absolute bottom-14 left-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#090F1A]/92 border border-emerald-500/40 text-xs font-medium text-emerald-200 hover:border-emerald-400 shadow-xl backdrop-blur-md transition-colors"
+              >
+                <Radar className="w-3.5 h-3.5 text-emerald-400" />
+                <span>បង្ហាញរូបភាពរ៉ាដា ({lockedRadarDetections.length})</span>
+              </button>
+            ))}
+
           {/* Active Geodesic Measurement HUD Panel */}
           {measureMode && (
             <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md rounded-xl bg-[#0B111C]/95 border border-cyan-500/40 px-4 py-3 shadow-2xl backdrop-blur-md">
@@ -1326,9 +1470,24 @@ export default function App() {
             onToggleRangeRings={() => setShowRangeRings((v) => !v)}
             onStartMeasureFromBase={handleStartMeasureFromBase}
             onOpenStreetView={handleOpenStreetViewForBase}
+            onOpenThermalScan={(b) => setThermalScanBase(b)}
           />
         )}
       </div>
+
+      {/* FLIR Thermal Optical & Public Arsenal Infrastructure Scanner Modal */}
+      {thermalScanBase && (
+        <ThermalOrdnanceScanner
+          base={thermalScanBase}
+          allBases={allBases}
+          onChangeBase={(nextBase) => {
+            setThermalScanBase(nextBase);
+            setSelectedBase(nextBase);
+          }}
+          onFlyToBase={handleSelectBase}
+          onClose={() => setThermalScanBase(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { Crosshair, Loader2, Pause, Play, Radar, RotateCcw, Satellite } from 'lucide-react';
 import {
-  type BaseScale,
   bearingToCompassKm,
   BRANCH_META,
+  getSatelliteTileUrl,
   type MilitaryBase,
   RADAR_PRESETS,
   type RadarPreset,
+  type RadarTargetFilter,
 } from '../data/bases';
 
 export interface RadarDetection {
@@ -24,8 +25,8 @@ interface RadarScanPanelProps {
   isScanning: boolean;
   onToggleScanning: () => void;
   onResetSweep: () => void;
-  scaleFilter: BaseScale | 'all';
-  onChangeScaleFilter: (scale: BaseScale | 'all') => void;
+  scaleFilter: RadarTargetFilter;
+  onChangeScaleFilter: (scale: RadarTargetFilter) => void;
   activePresetId: string;
   onApplyPreset: (preset: RadarPreset) => void;
   detections: RadarDetection[];
@@ -80,6 +81,7 @@ export default function RadarScanPanel({
 }: RadarScanPanelProps) {
   const lockedDetections = detections.filter((d) => d.detected);
   const smallCampCount = lockedDetections.filter((d) => d.base.scale === 'camp').length;
+  const fighterCount = lockedDetections.filter((d) => d.base.isFighterBase).length;
 
   const size = 196;
   const cx = size / 2;
@@ -169,9 +171,11 @@ export default function RadarScanPanel({
                 const color =
                   item.base.source === 'osm'
                     ? '#F59E0B'
-                    : item.base.scale === 'camp'
-                      ? '#34D399'
-                      : BRANCH_META[item.base.branch].color;
+                    : item.base.isFighterBase
+                      ? BRANCH_META.airforce.color
+                      : item.base.scale === 'camp'
+                        ? '#34D399'
+                        : BRANCH_META[item.base.branch].color;
 
                 return (
                   <g
@@ -214,11 +218,23 @@ export default function RadarScanPanel({
             </div>
 
             <div>
-              <div className="text-[10.5px] text-slate-400">ចាប់បានសរុប / បន្ទាយតូច</div>
+              <div className="text-[10.5px] text-slate-400">
+                {scaleFilter === 'fighter' ? 'យន្តហោះចម្បាំងរកឃើញ' : 'ចាប់បានសរុប / បន្ទាយតូច'}
+              </div>
               <div className="font-mono-tabular text-base font-semibold text-slate-100 leading-tight">
-                {lockedDetections.length}
-                <span className="text-slate-500 text-xs font-normal mx-1">/</span>
-                <span className="text-emerald-400">{smallCampCount}</span>
+                {scaleFilter === 'fighter' ? (
+                  <>
+                    <span className="text-sky-300">{fighterCount}</span>
+                    <span className="text-slate-500 text-xs font-normal mx-1">/</span>
+                    <span className="text-slate-300">{detections.length}</span>
+                  </>
+                ) : (
+                  <>
+                    {lockedDetections.length}
+                    <span className="text-slate-500 text-xs font-normal mx-1">/</span>
+                    <span className="text-emerald-400">{smallCampCount}</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -257,12 +273,13 @@ export default function RadarScanPanel({
         </div>
 
         {/* Target Scale Segmented Filter */}
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-[#070B13] border border-slate-800/80">
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#070B13] border border-slate-800/80">
           {(
             [
+              { id: 'fighter', label: 'យន្តហោះចម្បាំង (F-16)' },
               { id: 'camp', label: 'បន្ទាយតូចៗ' },
-              { id: 'all', label: 'ទាំងអស់' },
               { id: 'major', label: 'មូលដ្ឋានធំ' },
+              { id: 'all', label: 'ទាំងអស់' },
             ] as const
           ).map((tab) => (
             <button
@@ -271,7 +288,9 @@ export default function RadarScanPanel({
               onClick={() => onChangeScaleFilter(tab.id)}
               className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
                 scaleFilter === tab.id
-                  ? 'bg-[#162336] text-cyan-200'
+                  ? tab.id === 'fighter'
+                    ? 'bg-sky-500/20 text-sky-200'
+                    : 'bg-[#162336] text-cyan-200'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -384,45 +403,76 @@ export default function RadarScanPanel({
             const dotColor =
               base.source === 'osm'
                 ? '#F59E0B'
-                : base.scale === 'camp'
-                  ? '#34D399'
-                  : BRANCH_META[base.branch].color;
+                : base.isFighterBase
+                  ? BRANCH_META.airforce.color
+                  : base.scale === 'camp'
+                    ? '#34D399'
+                    : BRANCH_META[base.branch].color;
+            const thumbUrl = getSatelliteTileUrl(base.lat, base.lng, base.scale === 'camp' ? 15 : 14);
+            const aircraftLabel =
+              base.aircraftTypes && base.aircraftTypes.length > 0
+                ? base.aircraftTypes.join(' · ')
+                : null;
 
             return (
               <button
                 key={base.id}
                 type="button"
                 onClick={() => onSelectBase(base)}
-                className={`w-full text-left px-3.5 py-2.5 transition-colors flex items-start gap-2.5 ${
+                className={`w-full text-left px-3 py-2.5 transition-colors flex items-center gap-2.5 ${
                   isSelected
                     ? 'bg-cyan-500/14'
                     : recentlyPinged
-                      ? 'bg-emerald-500/8 hover:bg-emerald-500/12'
+                      ? 'bg-emerald-500/10 hover:bg-emerald-500/14'
                       : 'hover:bg-slate-800/45'
                 }`}
               >
-                <span
-                  className="w-2 h-2 mt-1.5 shrink-0"
-                  style={{
-                    backgroundColor: dotColor,
-                    transform: base.scale === 'camp' ? 'rotate(45deg)' : undefined,
-                    borderRadius: base.scale === 'camp' ? '1px' : '9999px',
-                  }}
-                />
+                <div
+                  className={`relative w-[54px] h-[38px] rounded-md overflow-hidden shrink-0 bg-[#05080F] border ${
+                    isSelected
+                      ? 'border-cyan-400'
+                      : recentlyPinged
+                        ? 'border-emerald-400/80 ring-1 ring-emerald-400/40'
+                        : 'border-slate-800'
+                  }`}
+                >
+                  <img
+                    src={thumbUrl}
+                    alt={base.nameKm}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                  <span
+                    className="absolute bottom-1 right-1 w-2 h-2 shadow"
+                    style={{
+                      backgroundColor: dotColor,
+                      transform: base.scale === 'camp' ? 'rotate(45deg)' : undefined,
+                      borderRadius: base.scale === 'camp' ? '1px' : '9999px',
+                      border: '1px solid #05080F',
+                    }}
+                  />
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-[12.5px] font-medium text-slate-100 leading-snug truncate">
                     {base.nameKm}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
-                    <span className={base.source === 'osm' ? 'text-amber-400' : 'text-emerald-400'}>
-                      {base.source === 'osm'
-                        ? 'OSM'
-                        : base.scale === 'camp'
-                          ? 'បន្ទាយតូច'
-                          : BRANCH_META[base.branch].shortKm}
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span className="truncate">{base.provinceKm}</span>
+                    {aircraftLabel ? (
+                      <span className="text-sky-300 font-medium truncate">{aircraftLabel}</span>
+                    ) : (
+                      <>
+                        <span className={base.source === 'osm' ? 'text-amber-400' : 'text-emerald-400'}>
+                          {base.source === 'osm'
+                            ? 'OSM'
+                            : base.scale === 'camp'
+                              ? 'បន្ទាយតូច'
+                              : BRANCH_META[base.branch].shortKm}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="truncate">{base.provinceKm}</span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="text-right shrink-0 font-mono-tabular">

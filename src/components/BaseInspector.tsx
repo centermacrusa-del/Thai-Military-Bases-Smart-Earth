@@ -5,10 +5,13 @@ import {
   Copy,
   Eye,
   ExternalLink,
+  Flame,
+  Image as ImageIcon,
   Loader2,
   Orbit,
   Radar,
   Ruler,
+  Satellite,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -18,6 +21,9 @@ import {
   BRANCH_META,
   formatDMS,
   getNearestCambodiaBorder,
+  getPublicArsenalProfile,
+  getSatelliteExportUrl,
+  getSatelliteTileUrl,
   haversineKm,
   type MilitaryBase,
   PHNOM_PENH_COORD,
@@ -42,9 +48,13 @@ interface BaseInspectorProps {
   onToggleRangeRings: () => void;
   onStartMeasureFromBase: (base: MilitaryBase) => void;
   onOpenStreetView: (base: MilitaryBase) => void;
+  onOpenThermalScan: (base: MilitaryBase) => void;
 }
 
 const briefingClientCache = new Map<string, BriefingData>();
+const inspectorStreetCache = new Map<string, string | null>();
+
+type PreviewMode = 'sat-close' | 'sat-wide' | 'street';
 
 export default function BaseInspector({
   base,
@@ -57,6 +67,7 @@ export default function BaseInspector({
   onToggleRangeRings,
   onStartMeasureFromBase,
   onOpenStreetView,
+  onOpenThermalScan,
 }: BaseInspectorProps) {
   const [copied, setCopied] = useState(false);
   const [briefing, setBriefing] = useState<BriefingData | null>(
@@ -64,6 +75,11 @@ export default function BaseInspector({
   );
   const [loadingBriefing, setLoadingBriefing] = useState(false);
   const [briefingError, setBriefingError] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('sat-close');
+  const [satFallback, setSatFallback] = useState(false);
+  const [streetPreviewUrl, setStreetPreviewUrl] = useState<string | null>(
+    () => inspectorStreetCache.get(base.id) ?? null
+  );
 
   const abortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<number | null>(null);
@@ -75,12 +91,38 @@ export default function BaseInspector({
     setBriefingError(null);
     setLoadingBriefing(false);
     setCopied(false);
+    setPreviewMode('sat-close');
+    setSatFallback(false);
+
+    let streetCtrl: AbortController | null = null;
+    if (inspectorStreetCache.has(base.id)) {
+      setStreetPreviewUrl(inspectorStreetCache.get(base.id) ?? null);
+    } else {
+      setStreetPreviewUrl(null);
+      streetCtrl = new AbortController();
+      const ctrl = streetCtrl;
+      fetch(
+        `/api/streetview/kartaview?lat=${base.lat.toFixed(5)}&lng=${base.lng.toFixed(5)}&radius=500`,
+        { signal: ctrl.signal }
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { frames?: Array<{ imageUrl?: string; thumbUrl?: string }> } | null) => {
+          if (ctrl.signal.aborted) return;
+          const url = data?.frames?.[0]?.imageUrl || data?.frames?.[0]?.thumbUrl || null;
+          inspectorStreetCache.set(base.id, url);
+          setStreetPreviewUrl(url);
+        })
+        .catch(() => {
+          // Ignore — satellite imagery remains shown
+        });
+    }
 
     return () => {
       abortRef.current?.abort();
       abortRef.current = null;
+      streetCtrl?.abort();
     };
-  }, [base.id]);
+  }, [base.id, base.lat, base.lng]);
 
   useEffect(() => {
     return () => {
@@ -93,6 +135,7 @@ export default function BaseInspector({
   const branchMeta = BRANCH_META[base.branch];
   const regionMeta = REGION_META[base.region];
   const scaleMeta = SCALE_META[base.scale];
+  const arsenal = getPublicArsenalProfile(base);
   const border = getNearestCambodiaBorder(base.lat, base.lng);
   const distPP = haversineKm(base.lat, base.lng, PHNOM_PENH_COORD.lat, PHNOM_PENH_COORD.lng);
   const bearingFromPP = bearingDegrees(PHNOM_PENH_COORD.lat, PHNOM_PENH_COORD.lng, base.lat, base.lng);
@@ -199,15 +242,120 @@ export default function BaseInspector({
 
       {/* Scrollable Inspector Body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-        {/* Primary 4K Street View Launch Action */}
-        <button
-          type="button"
-          onClick={() => onOpenStreetView(base)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-colors whitespace-nowrap"
-        >
-          <Camera className="w-4 h-4 shrink-0" />
-          <span>បើក Street View 4K 360° នៅទីតាំងនេះ</span>
-        </button>
+        {/* Live Satellite & Roadside Visual Imagery Preview */}
+        <div className="rounded-xl overflow-hidden border border-slate-800 bg-[#05080F]">
+          <div className="relative aspect-[16/9] w-full bg-[#05080F] overflow-hidden">
+            <img
+              key={`${base.id}-${previewMode}-${satFallback}`}
+              src={
+                previewMode === 'street' && streetPreviewUrl
+                  ? streetPreviewUrl
+                  : satFallback
+                    ? getSatelliteTileUrl(base.lat, base.lng, previewMode === 'sat-wide' ? 14 : 15)
+                    : getSatelliteExportUrl(base.lat, base.lng, {
+                        halfHeightKm:
+                          previewMode === 'sat-wide'
+                            ? base.scale === 'camp'
+                              ? 1.15
+                              : 1.85
+                            : base.scale === 'camp'
+                              ? 0.38
+                              : 0.75,
+                        width: 560,
+                        height: 315,
+                      })
+              }
+              alt={`រូបភាព ${base.nameKm}`}
+              referrerPolicy="no-referrer"
+              onError={() => {
+                if (previewMode === 'street') {
+                  setPreviewMode('sat-close');
+                } else if (!satFallback) {
+                  setSatFallback(true);
+                }
+              }}
+              className="w-full h-full object-cover"
+            />
+            {previewMode !== 'street' && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="w-5 h-5 rounded-full border border-cyan-300/80 bg-cyan-400/10 flex items-center justify-center">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
+                </div>
+              </div>
+            )}
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#05080F]/92 via-[#05080F]/45 to-transparent px-2.5 pt-5 pb-2 flex items-center justify-between gap-2">
+              <span className="text-[10.5px] font-mono-tabular text-slate-200">
+                {previewMode === 'street' ? 'រូបភាពផ្លូវ HD' : 'រូបភាពផ្កាយរណបជាក់ស្តែង'}
+              </span>
+              <div className="flex items-center gap-1 p-0.5 rounded-md bg-[#070B13]/90 border border-slate-700/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSatFallback(false);
+                    setPreviewMode('sat-close');
+                  }}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    previewMode === 'sat-close'
+                      ? 'bg-cyan-500/25 text-cyan-200'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Satellite className="w-2.5 h-2.5" />
+                  <span>ជិត</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSatFallback(false);
+                    setPreviewMode('sat-wide');
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    previewMode === 'sat-wide'
+                      ? 'bg-cyan-500/25 text-cyan-200'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  ទូលាយ
+                </button>
+                {streetPreviewUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('street')}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                      previewMode === 'street'
+                        ? 'bg-emerald-500/25 text-emerald-200'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <ImageIcon className="w-2.5 h-2.5" />
+                    <span>ផ្លូវ HD</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Primary FLIR Thermal & 4K Street View Launch Actions */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => onOpenThermalScan(base)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-orange-500/25 via-amber-500/20 to-rose-500/25 hover:from-orange-500/35 hover:to-rose-500/35 border border-orange-500/50 text-orange-100 font-semibold text-xs transition-colors whitespace-nowrap"
+          >
+            <Flame className="w-4 h-4 shrink-0 text-orange-400" />
+            <span>ស្កេនកំដៅ FLIR និងកម្រិតអាវុធ ({arsenal.densityShortKm})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onOpenStreetView(base)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-colors whitespace-nowrap"
+          >
+            <Camera className="w-4 h-4 shrink-0" />
+            <span>បើក Street View 4K 360° នៅទីតាំងនេះ</span>
+          </button>
+        </div>
 
         {/* 3D Camera & Spatial Action Toolbar */}
         <div className="grid grid-cols-2 gap-2">
@@ -323,6 +471,28 @@ export default function BaseInspector({
               <dt className="text-slate-400 shrink-0">ប្រភេទមូលដ្ឋាន</dt>
               <dd className="text-slate-200 text-right">{base.facilityTypeKm}</dd>
             </div>
+            <div className="flex justify-between gap-3 py-1.5 border-b border-slate-800/60">
+              <dt className="text-slate-400 shrink-0">កម្រិតអាវុធ (សាធារណៈ)</dt>
+              <dd
+                className={`text-right font-semibold ${
+                  arsenal.density === 'high'
+                    ? 'text-rose-300'
+                    : arsenal.density === 'medium'
+                      ? 'text-amber-300'
+                      : 'text-emerald-300'
+                }`}
+              >
+                {arsenal.densityLabelKm}
+              </dd>
+            </div>
+            {base.aircraftTypes && base.aircraftTypes.length > 0 && (
+              <div className="flex justify-between gap-3 py-1.5 border-b border-slate-800/60">
+                <dt className="text-slate-400 shrink-0">យន្តហោះប្រចាំការ</dt>
+                <dd className="text-sky-300 font-medium text-right font-mono-tabular">
+                  {base.aircraftTypes.join(', ')}
+                </dd>
+              </div>
+            )}
             {base.runwayOrPort && (
               <div className="flex justify-between gap-3 py-1.5 border-b border-slate-800/60">
                 <dt className="text-slate-400 shrink-0">ហេដ្ឋារចនាសម្ព័ន្ធ</dt>

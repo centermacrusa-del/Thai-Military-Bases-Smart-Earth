@@ -56,6 +56,8 @@ class TtlCache<T> {
 const geocodeCache = new TtlCache<unknown[]>(150);
 const osmScanCache = new TtlCache<{ sites: unknown[]; radiusKm: number }>(100);
 const kartaViewCache = new TtlCache<unknown[]>(100);
+const satelliteImgCache = new TtlCache<Buffer>(64);
+const baseInfraCache = new TtlCache<unknown>(100);
 const briefingCache = new TtlCache<{
   historyKm: string;
   terrainKm: string;
@@ -254,6 +256,8 @@ const CATALOG_SUMMARY = THAI_MILITARY_BASES.map((b) => {
     nearestCambodiaBorder: border.ref.nameKm,
     distanceToCambodiaBorderKm: Math.round(border.distanceKm),
     runwayOrPort: b.runwayOrPort || '',
+    isFighterBase: Boolean(b.isFighterBase),
+    aircraftTypes: b.aircraftTypes ?? [],
     keyUnitsKm: b.keyUnitsKm.slice(0, 3),
   };
 });
@@ -673,12 +677,67 @@ out center 45;`;
   }
 });
 
-// Open KartaView (OpenStreetCam) HD Street-Level Imagery Proxy (Zero API Key)
+interface KartaApiPhoto {
+  id?: string | number;
+  lat?: string | number;
+  lng?: string | number;
+  heading?: string | number;
+  shotDate?: string;
+  imageProcUrl?: string;
+  imageLthUrl?: string;
+  imageThUrl?: string;
+  fileurlProc?: string;
+  fileurlLTh?: string;
+  fileurl?: string;
+  sequenceId?: string | number;
+  sequenceIndex?: string | number;
+  width?: string | number;
+  height?: string | number;
+}
+
+async function queryKartaViewPoint(
+  lat: number,
+  lng: number,
+  radiusM: number,
+  itemsPerPage: number
+): Promise<KartaApiPhoto[]> {
+  const url = new URL('https://api.kartaview.org/2.0/photo/');
+  url.searchParams.set('lat', lat.toFixed(6));
+  url.searchParams.set('lng', lng.toFixed(6));
+  url.searchParams.set('radius', String(Math.round(clamp(radiusM, 50, 500))));
+  url.searchParams.set('itemsPerPage', String(itemsPerPage));
+  url.searchParams.set('page', '1');
+
+  const upstream = await fetchWithTimeout(
+    url.toString(),
+    {
+      headers: {
+        'User-Agent': 'ThaiGeoEarthExplorer/1.0',
+        Accept: 'application/json',
+      },
+    },
+    9000
+  );
+
+  if (!upstream.ok) {
+    const err = new Error(`KartaView upstream HTTP ${upstream.status}`);
+    (err as { status?: number }).status = upstream.status;
+    throw err;
+  }
+
+  const json = (await upstream.json()) as {
+    result?: { data?: KartaApiPhoto[] };
+  };
+  return Array.isArray(json.result?.data) ? json.result.data : [];
+}
+
+// Open KartaView HD Street-Level Imagery Proxy (Zero API Key)
 app.get('/api/streetview/kartaview', async (req, res) => {
   try {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
-    const radius = Math.round(clamp(Number(req.query.radius) || 2500, 200, 8000));
+    // KartaView API v2 enforces radius in [1, 500] meters
+    const radius = Math.round(clamp(Number(req.query.radius) || 500, 100, 500));
 
     if (!isValidCoord(lat, lng)) {
       res.status(400).json({ frames: [], error: 'កូអរដោណេមិនត្រឹមត្រូវ។' });
@@ -692,60 +751,59 @@ app.get('/api/streetview/kartaview', async (req, res) => {
       return;
     }
 
-    const url = new URL('https://api.openstreetcam.org/2.0/photo/');
-    url.searchParams.set('lat', String(lat));
-    url.searchParams.set('lng', String(lng));
-    url.searchParams.set('radius', String(radius));
-    url.searchParams.set('itemsPerPage', '24');
-    url.searchParams.set('page', '1');
+    let rawItems = await queryKartaViewPoint(lat, lng, radius, 24);
 
-    const upstream = await fetchWithTimeout(
-      url.toString(),
-      {
-        headers: {
-          'User-Agent': 'ThaiGeoEarthExplorer/1.0',
-          Accept: 'application/json',
-        },
-      },
-      9000
-    );
-
-    if (!upstream.ok) {
-      res.status(502).json({ frames: [], error: 'មិនអាចទាញយករូបភាពផ្លូវ HD បានទេនៅពេលនេះ។' });
-      return;
+    // If center lies inside a restricted base perimeter, probe 4 nearby roadside points (~700m out)
+    if (rawItems.length === 0) {
+      const degLat = 0.0063;
+      const degLng = 0.0063 / Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+      const offsets: [number, number][] = [
+        [lat + degLat, lng],
+        [lat - degLat, lng],
+        [lat, lng + degLng],
+        [lat, lng - degLng],
+      ];
+      const settled = await Promise.allSettled(
+        offsets.map(([oLat, oLng]) => queryKartaViewPoint(oLat, oLng, 500, 8))
+      );
+      const merged: KartaApiPhoto[] = [];
+      for (const s of settled) {
+        if (s.status === 'fulfilled') {
+          merged.push(...s.value);
+        }
+      }
+      rawItems = merged;
     }
 
-    const json = (await upstream.json()) as {
-      result?: {
-        data?: Array<{
-          id?: string | number;
-          lat?: string | number;
-          lng?: string | number;
-          heading?: string | number;
-          shotDate?: string;
-          fileurlProc?: string;
-          fileurlLTh?: string;
-          fileurl?: string;
-          sequenceId?: string | number;
-          sequenceIndex?: string | number;
-          width?: string | number;
-          height?: string | number;
-        }>;
-      };
-    };
-
-    const rawItems = json.result?.data ?? [];
+    const seenIds = new Set<string>();
     const frames = rawItems
       .map((item) => {
-        const imageUrl = item.fileurlProc || item.fileurl || item.fileurlLTh || '';
-        const thumbUrl = item.fileurlLTh || imageUrl;
+        // Prefer fast cdn.kartaview.org URLs over legacy storage*.openstreetcam.org URLs
+        const imageUrl =
+          item.imageProcUrl ||
+          item.imageLthUrl ||
+          item.imageThUrl ||
+          item.fileurlProc ||
+          item.fileurlLTh ||
+          '';
+        const thumbUrl = item.imageLthUrl || item.imageThUrl || item.fileurlLTh || imageUrl;
         const pLat = Number(item.lat);
         const pLng = Number(item.lng);
-        if (!imageUrl || !/^https?:\/\//i.test(imageUrl) || !isValidCoord(pLat, pLng)) return null;
+        if (
+          !imageUrl ||
+          imageUrl.includes('{{') ||
+          !/^https?:\/\//i.test(imageUrl) ||
+          !isValidCoord(pLat, pLng)
+        ) {
+          return null;
+        }
+        const id = String(item.id ?? `${pLat}-${pLng}`);
+        if (seenIds.has(id)) return null;
+        seenIds.add(id);
         return {
-          id: String(item.id ?? `${pLat}-${pLng}`),
+          id,
           imageUrl,
-          thumbUrl: /^https?:\/\//i.test(thumbUrl) ? thumbUrl : imageUrl,
+          thumbUrl: /^https?:\/\//i.test(thumbUrl) && !thumbUrl.includes('{{') ? thumbUrl : imageUrl,
           lat: pLat,
           lng: pLng,
           heading: Number(item.heading) || 0,
@@ -756,13 +814,255 @@ app.get('/api/streetview/kartaview', async (req, res) => {
           height: Number(item.height) || 1080,
         };
       })
-      .filter((f): f is NonNullable<typeof f> => f !== null);
+      .filter((f): f is NonNullable<typeof f> => f !== null)
+      .slice(0, 24);
 
     kartaViewCache.set(cacheKey, frames, 5 * 60 * 1000);
     res.json({ frames });
   } catch (err) {
     console.warn('KartaView proxy fallback:', err instanceof Error ? err.message : err);
-    res.status(504).json({ frames: [], error: 'ការទាញយករូបភាពផ្លូវ HD ប្រើពេលយូរពេក។' });
+    res.status(502).json({ frames: [], error: 'មិនអាចទាញយករូបភាពផ្លូវ HD ពី KartaView បានទេនៅពេលនេះ។' });
+  }
+});
+
+// Same-origin high-resolution satellite snapshot proxy so client HTML5 Canvas FLIR analysis runs without CORS tainting
+app.get('/api/scanner/satellite-image', async (req, res) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const halfHeightKm = clamp(Number(req.query.halfHeightKm) || 0.55, 0.18, 2.2);
+    const width = Math.round(clamp(Number(req.query.width) || 640, 240, 800));
+    const height = Math.round(clamp(Number(req.query.height) || 380, 180, 520));
+
+    if (!isValidCoord(lat, lng)) {
+      res.status(400).json({ error: 'កូអរដោណេមិនត្រឹមត្រូវ។' });
+      return;
+    }
+
+    const cacheKey = `${lat.toFixed(4)}:${lng.toFixed(4)}:${halfHeightKm.toFixed(2)}:${width}x${height}`;
+    const cached = satelliteImgCache.get(cacheKey);
+    if (cached) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=900');
+      res.send(cached);
+      return;
+    }
+
+    const aspect = width / height;
+    const dLat = halfHeightKm / 111.32;
+    const cosLat = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+    const dLng = (halfHeightKm * aspect) / (111.32 * cosLat);
+    const bbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat]
+      .map((n) => n.toFixed(6))
+      .join(',');
+
+    const esriUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&size=${width},${height}&imageSR=3857&format=jpg&f=image`;
+
+    const upstream = await fetchWithTimeout(
+      esriUrl,
+      {
+        headers: {
+          'User-Agent': 'ThaiGeoEarthExplorer/1.0',
+          Accept: 'image/jpeg,image/*,*/*;q=0.8',
+        },
+      },
+      12000
+    );
+
+    if (!upstream.ok) {
+      throw new Error(`Esri satellite export HTTP ${upstream.status}`);
+    }
+
+    const arrayBuf = await upstream.arrayBuffer();
+    const buf = Buffer.from(arrayBuf);
+    if (buf.length < 512) {
+      throw new Error('Empty satellite image buffer');
+    }
+
+    satelliteImgCache.set(cacheKey, buf, 15 * 60 * 1000);
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=900');
+    res.send(buf);
+  } catch (err) {
+    console.warn('Satellite proxy fallback:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'មិនអាចទាញយករូបភាពផ្កាយរណបសម្រាប់វិភាគកំដៅបានទេ។' });
+  }
+});
+
+// Real OpenStreetMap military & aviation structure scanner inside a base perimeter
+app.get('/api/scanner/infrastructure', async (req, res) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const radiusM = Math.round(clamp(Number(req.query.radiusM) || 1500, 400, 2600));
+
+    if (!isValidCoord(lat, lng)) {
+      res.status(400).json({ structures: [], error: 'កូអរដោណេមិនត្រឹមត្រូវ។' });
+      return;
+    }
+
+    const cacheKey = `${lat.toFixed(3)}:${lng.toFixed(3)}:${radiusM}`;
+    const cached = baseInfraCache.get(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
+    const query = `
+      [out:json][timeout:14];
+      (
+        nwr["aeroway"~"^(hangar|apron|helipad|runway)$"](around:${radiusM},${lat},${lng});
+        nwr["military"~"^(bunker|ammunition|depot|barracks|range|checkpoint|trench|radar|airfield|naval_base)$"](around:${radiusM},${lat},${lng});
+        nwr["building"~"^(bunker|hangar|military)$"](around:${radiusM},${lat},${lng});
+        nwr["man_made"~"^(storage_tank|silo|radar)$"](around:${radiusM},${lat},${lng});
+      );
+      out center 60;
+    `;
+
+    const mirrors = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+    ];
+
+    interface OverpassInfraElement {
+      type: string;
+      id: number;
+      lat?: number;
+      lon?: number;
+      center?: { lat: number; lon: number };
+      tags?: Record<string, string>;
+    }
+    interface OverpassInfraResponse {
+      elements?: OverpassInfraElement[];
+    }
+
+    let data: OverpassInfraResponse | null = null;
+
+    for (const mirror of mirrors) {
+      try {
+        const upstream = await fetchWithTimeout(
+          mirror,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'User-Agent': 'ThaiGeoEarthExplorer/1.0',
+            },
+            body: `data=${encodeURIComponent(query)}`,
+          },
+          13000
+        );
+        if (!upstream.ok) continue;
+        data = (await upstream.json()) as OverpassInfraResponse;
+        break;
+      } catch {
+        continue;
+      }
+    }
+
+    const elements = data?.elements ?? [];
+    const seen = new Set<string>();
+    const counts = {
+      hangar: 0,
+      bunker: 0,
+      fuel: 0,
+      helipad: 0,
+      barracks: 0,
+      radar: 0,
+    };
+
+    const structures: Array<{
+      id: string;
+      category: keyof typeof counts;
+      categoryKm: string;
+      name: string;
+      lat: number;
+      lng: number;
+      distanceM: number;
+    }> = [];
+
+    for (const el of elements) {
+      const pLat = el.lat ?? el.center?.lat;
+      const pLng = el.lon ?? el.center?.lon;
+      if (typeof pLat !== 'number' || typeof pLng !== 'number') continue;
+      if (!isValidCoord(pLat, pLng)) continue;
+
+      const tags = el.tags ?? {};
+      const dedupeKey = `${pLat.toFixed(4)}:${pLng.toFixed(4)}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      let category: keyof typeof counts = 'barracks';
+      let categoryKm = 'អគារបន្ទាយ / ទីលានហ្វឹកហាត់';
+
+      if (tags.aeroway === 'hangar' || tags.aeroway === 'apron' || tags.building === 'hangar') {
+        category = 'hangar';
+        categoryKm = tags.aeroway === 'apron' ? 'ទីលានចតយន្តហោះ (Apron)' : 'ឃ្លាំងយន្តហោះ (Hangar)';
+      } else if (
+        tags.military === 'bunker' ||
+        tags.military === 'ammunition' ||
+        tags.military === 'depot' ||
+        tags.building === 'bunker'
+      ) {
+        category = 'bunker';
+        categoryKm =
+          tags.military === 'ammunition'
+            ? 'ឃ្លាំងគ្រាប់រំសេវ (OSM)'
+            : 'លេណដ្ឋាន / ឃ្លាំងស្តុក (Bunker)';
+      } else if (tags.man_made === 'storage_tank' || tags.man_made === 'silo') {
+        category = 'fuel';
+        categoryKm = 'ធុងប្រេង / ស្តុកសម្ភារៈ';
+      } else if (tags.aeroway === 'helipad') {
+        category = 'helipad';
+        categoryKm = 'ទីលានឧទ្ធម្ភាគចក្រ (Helipad)';
+      } else if (tags.military === 'radar' || tags.man_made === 'radar') {
+        category = 'radar';
+        categoryKm = 'ស្ថានីយរ៉ាដា / ទំនាក់ទំនង';
+      } else if (tags.aeroway === 'runway') {
+        category = 'hangar';
+        categoryKm = 'ផ្លូវរត់យន្តហោះ (Runway)';
+      }
+
+      counts[category] += 1;
+      const rawName = sanitizeText(tags['name:en'] || tags.name || tags.ref || '', 80);
+      const distanceM = Math.round(haversineKm(lat, lng, pLat, pLng) * 1000);
+
+      structures.push({
+        id: `${el.type}-${el.id}`,
+        category,
+        categoryKm,
+        name: rawName || categoryKm,
+        lat: pLat,
+        lng: pLng,
+        distanceM,
+      });
+
+      if (structures.length >= 40) break;
+    }
+
+    structures.sort((a, b) => a.distanceM - b.distanceM);
+
+    const payload = {
+      structures,
+      counts,
+      total: structures.length,
+      radiusM,
+      degraded: data === null,
+    };
+
+    if (data !== null) {
+      baseInfraCache.set(cacheKey, payload, 10 * 60 * 1000);
+    }
+    res.json(payload);
+  } catch (err) {
+    console.warn('Base infrastructure scan fallback:', err instanceof Error ? err.message : err);
+    res.json({
+      structures: [],
+      counts: { hangar: 0, bunker: 0, fuel: 0, helipad: 0, barracks: 0, radar: 0 },
+      total: 0,
+      radiusM: 1500,
+      degraded: true,
+    });
   }
 });
 

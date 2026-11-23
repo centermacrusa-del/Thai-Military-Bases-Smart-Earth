@@ -2,6 +2,8 @@ export type BranchType = 'army' | 'airforce' | 'navy' | 'hq';
 
 export type BaseScale = 'major' | 'camp';
 
+export type RadarTargetFilter = BaseScale | 'fighter' | 'all';
+
 export type RegionType = 'central' | 'northeast' | 'north' | 'east' | 'south';
 
 export type BasemapId = 'satellite-hybrid' | 'satellite' | 'topo' | 'dark';
@@ -25,6 +27,8 @@ export interface MilitaryBase {
   runwayOrPort?: string;
   summaryKm: string;
   keyUnitsKm: string[];
+  isFighterBase?: boolean;
+  aircraftTypes?: string[];
   source?: 'catalog' | 'osm';
 }
 
@@ -489,8 +493,8 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
   },
   {
     id: 'rtaf-korat-wing1',
-    nameKm: 'មូលដ្ឋានទ័ពអាកាសកូរ៉ាត់ (កងពលទី១)',
-    nameEn: 'Korat RTAF Base — Wing 1',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសកូរ៉ាត់ (កងពលទី១ — F-16)',
+    nameEn: 'Korat RTAF Base — Wing 1 (F-16 Main Base)',
     nameTh: 'กองบิน 1 นครราชสีมา',
     branch: 'airforce',
     scale: 'major',
@@ -502,10 +506,12 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
     lng: 102.0786,
     elevationM: 222,
     established: '1976',
-    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំងស្នូល',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំងស្នូល F-16',
     runwayOrPort: 'ផ្លូវរត់ 3,000 m (VTUN)',
-    summaryKm: 'មូលដ្ឋានទ័ពអាកាសយុទ្ធសាស្ត្រសំខាន់បំផុតមួយនៅភូមិភាគឦសាន ជាទីតាំងនៃកងអនុសេនាធំយន្តហោះចម្បាំង F-16 និងការហ្វឹកហាត់អន្តរជាតិ Cope Tiger។',
-    keyUnitsKm: ['កងអនុសេនាធំទី១០២', 'កងអនុសេនាធំទី១០៣ (F-16A/B)'],
+    summaryKm: 'មូលដ្ឋានយន្តហោះចម្បាំង F-16 ធំបំផុតរបស់ថៃ ស្ថិតនៅភូមិភាគឦសាន ជាទីតាំងនៃកងអនុសេនាធំយន្តហោះចម្បាំង F-16A/B ទី១០២ និងទី១០៣ និងការហ្វឹកហាត់អន្តរជាតិ Cope Tiger។',
+    keyUnitsKm: ['កងអនុសេនាធំទី១០២ (F-16A/B ADF)', 'កងអនុសេនាធំទី១០៣ (F-16A/B OCU)'],
+    isFighterBase: true,
+    aircraftTypes: ['F-16A/B ADF', 'F-16A/B OCU'],
   },
   {
     id: 'rtaf-lopburi-wing2',
@@ -529,8 +535,8 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
   },
   {
     id: 'rtaf-takhli-wing4',
-    nameKm: 'មូលដ្ឋានទ័ពអាកាសតាឃ្លី (កងពលទី៤)',
-    nameEn: 'Takhli RTAF Base — Wing 4',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសតាឃ្លី (កងពលទី៤ — F-16 MLU & T-50)',
+    nameEn: 'Takhli RTAF Base — Wing 4 (F-16 MLU / T-50TH)',
     nameTh: 'กองบิน 4 ตาคลี',
     branch: 'airforce',
     scale: 'major',
@@ -542,15 +548,17 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
     lng: 100.2958,
     elevationM: 33,
     established: '1943',
-    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំង និងហ្វឹកហ្វឺន',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំង F-16 MLU និង T-50TH',
     runwayOrPort: 'ផ្លូវរត់ 3,000 m (VTPI)',
-    summaryKm: 'មូលដ្ឋានទ័ពអាកាសប្រវត្តិសាស្ត្រដ៏ធំនៅខេត្តនគរសួគ៌ ប្រតិបត្តិការយន្តហោះចម្បាំង F-16 និងយន្តហោះហ្វឹកហ្វឺនប្រយុទ្ធ T-50TH។',
-    keyUnitsKm: ['កងអនុសេនាធំទី៤០១ (T-50TH)', 'កងអនុសេនាធំទី៤០៣ (F-16)'],
+    summaryKm: 'មូលដ្ឋានយន្តហោះចម្បាំងស្នូលទី២ របស់ F-16 នៅខេត្តនគរសួគ៌ ប្រតិបត្តិការយន្តហោះចម្បាំងទំនើប F-16A/B eMLU (កងអនុសេនាធំទី៤០៣) និងយន្តហោះចម្បាំងហ្វឹកហ្វឺន T-50TH Golden Eagle។',
+    keyUnitsKm: ['កងអនុសេនាធំទី៤០៣ (F-16A/B eMLU)', 'កងអនុសេនាធំទី៤០១ (T-50TH Golden Eagle)'],
+    isFighterBase: true,
+    aircraftTypes: ['F-16A/B eMLU', 'T-50TH'],
   },
   {
     id: 'rtaf-ubon-wing21',
-    nameKm: 'មូលដ្ឋានទ័ពអាកាសឧប៊ុន (កងពលទី២១)',
-    nameEn: 'Ubon Ratchathani RTAF Base — Wing 21',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសឧប៊ុន (កងពលទី២១ — F-5TH)',
+    nameEn: 'Ubon Ratchathani RTAF Base — Wing 21 (F-5TH)',
     nameTh: 'กองบิน 21 อุบลราชธานี',
     branch: 'airforce',
     scale: 'major',
@@ -562,15 +570,17 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
     lng: 104.8702,
     elevationM: 124,
     established: '1977',
-    facilityTypeKm: 'មូលដ្ឋានទ័ពអាកាសភូមិភាគឦសានចុងខាងកើត',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំង F-5TH ភូមិភាគឦសាន',
     runwayOrPort: 'ផ្លូវរត់ 3,000 m (VTUU)',
-    summaryKm: 'មូលដ្ឋានទ័ពអាកាសនៅភាគឦសានចុងខាងកើត ប្រើប្រាស់ផ្លូវរត់រួមជាមួយអាកាសយានដ្ឋានឧប៊ុនរាជធានី ស្ថិតនៅជិតតំបន់មុំបី។',
+    summaryKm: 'មូលដ្ឋានយន្តហោះចម្បាំងនៅភាគឦសានចុងខាងកើត ជិតតំបន់មុំបី (ព្រំដែនកម្ពុជា-ឡាវ-ថៃ) ប្រតិបត្តិការយន្តហោះចម្បាំងទំនើបកម្ម F-5TH Super Tigris។',
     keyUnitsKm: ['កងអនុសេនាធំទី២១១ (F-5TH Super Tigris)'],
+    isFighterBase: true,
+    aircraftTypes: ['F-5TH Super Tigris'],
   },
   {
     id: 'rtaf-udon-wing23',
-    nameKm: 'មូលដ្ឋានទ័ពអាកាសអ៊ូដនថានី (កងពលទី២៣)',
-    nameEn: 'Udon Thani RTAF Base — Wing 23',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសអ៊ូដនថានី (កងពលទី២៣ — Alpha Jet)',
+    nameEn: 'Udon Thani RTAF Base — Wing 23 (Alpha Jet)',
     nameTh: 'กองบิน 23 อุดรธานี',
     branch: 'airforce',
     scale: 'major',
@@ -582,15 +592,17 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
     lng: 102.7883,
     elevationM: 176,
     established: '1977',
-    facilityTypeKm: 'មូលដ្ឋានយន្តហោះវាយប្រហារធុនស្រាល',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះវាយប្រហារធុនស្រាល Alpha Jet',
     runwayOrPort: 'ផ្លូវរត់ 3,048 m (VTUD)',
-    summaryKm: 'មូលដ្ឋានទ័ពអាកាសនៅភូមិភាគឦសានភាគខាងជើង ជិតទន្លេមេគង្គ និងព្រំដែនប្រទេសឡាវ។',
-    keyUnitsKm: ['កងអនុសេនាធំទី២៣១ (Alpha Jet)'],
+    summaryKm: 'មូលដ្ឋានយន្តហោះវាយប្រហារនៅភូមិភាគឦសានភាគខាងជើង ជិតទន្លេមេគង្គ ប្រតិបត្តិការយន្តហោះវាយប្រហារ Alpha Jet TH។',
+    keyUnitsKm: ['កងអនុសេនាធំទី២៣១ (Alpha Jet TH)'],
+    isFighterBase: true,
+    aircraftTypes: ['Alpha Jet TH'],
   },
   {
     id: 'rtaf-chiangmai-wing41',
-    nameKm: 'មូលដ្ឋានទ័ពអាកាសឈៀងម៉ៃ (កងពលទី៤១)',
-    nameEn: 'Chiang Mai RTAF Base — Wing 41',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសឈៀងម៉ៃ (កងពលទី៤១ — AT-6TH)',
+    nameEn: 'Chiang Mai RTAF Base — Wing 41 (AT-6TH)',
     nameTh: 'กองบิน 41 เชียงใหม่',
     branch: 'airforce',
     scale: 'major',
@@ -602,15 +614,17 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
     lng: 98.9626,
     elevationM: 316,
     established: '1941',
-    facilityTypeKm: 'មូលដ្ឋានទ័ពអាកាសភាគខាងជើង',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះវាយប្រហារស្រាលភាគខាងជើង',
     runwayOrPort: 'ផ្លូវរត់ 3,100 m (VTCC)',
-    summaryKm: 'មូលដ្ឋានទ័ពអាកាសការពារដែនអាកាសភាគខាងជើង ស្ថិតនៅជាប់អាកាសយានដ្ឋានអន្តរជាតិឈៀងម៉ៃ ជើងភ្នំដយសុថេប។',
-    keyUnitsKm: ['កងអនុសេនាធំទី៤១១ (AT-6TH)'],
+    summaryKm: 'មូលដ្ឋានទ័ពអាកាសការពារដែនអាកាសភាគខាងជើង ស្ថិតនៅជាប់អាកាសយានដ្ឋានអន្តរជាតិឈៀងម៉ៃ ប្រតិបត្តិការយន្តហោះវាយប្រហារធុនស្រាល AT-6TH Wolverine។',
+    keyUnitsKm: ['កងអនុសេនាធំទី៤១១ (AT-6TH Wolverine)'],
+    isFighterBase: true,
+    aircraftTypes: ['AT-6TH Wolverine'],
   },
   {
     id: 'rtaf-suratthani-wing7',
-    nameKm: 'មូលដ្ឋានទ័ពអាកាសសុរ៉ាត់ថានី (កងពលទី៧)',
-    nameEn: 'Surat Thani RTAF Base — Wing 7',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសសុរ៉ាត់ថានី (កងពលទី៧ — Gripen)',
+    nameEn: 'Surat Thani RTAF Base — Wing 7 (JAS 39 Gripen)',
     nameTh: 'กองบิน 7 สุราษฎร์ธานี',
     branch: 'airforce',
     scale: 'major',
@@ -622,10 +636,98 @@ export const THAI_MILITARY_BASES: MilitaryBase[] = [
     lng: 99.1356,
     elevationM: 6,
     established: '1982',
-    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំង Gripen ភាគខាងត្បូង',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះចម្បាំង JAS 39 Gripen',
     runwayOrPort: 'ផ្លូវរត់ 3,000 m (VTSB)',
-    summaryKm: 'មូលដ្ឋានទ័ពអាកាសទំនើបនៅភាគខាងត្បូង ជាទីតាំងនៃយន្តហោះចម្បាំង JAS 39 Gripen និងយន្តហោះរ៉ាដា Saab 340 AEW។',
-    keyUnitsKm: ['កងអនុសេនាធំទី៧០១ (JAS 39 Gripen)', 'កងអនុសេនាធំទី៧០២ (Saab 340 AEW)'],
+    summaryKm: 'មូលដ្ឋានទ័ពអាកាសទំនើបបំផុតនៅភាគខាងត្បូង ជាទីតាំងនៃយន្តហោះចម្បាំង JAS 39C/D Gripen (និងគម្រោង Gripen E/F) ព្រមទាំងយន្តហោះរ៉ាដា Saab 340 AEW។',
+    keyUnitsKm: ['កងអនុសេនាធំទី៧០១ (JAS 39C/D Gripen)', 'កងអនុសេនាធំទី៧០២ (Saab 340 AEW)'],
+    isFighterBase: true,
+    aircraftTypes: ['JAS 39 Gripen', 'Saab 340 AEW'],
+  },
+  {
+    id: 'rtaf-hatyai-wing56',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសហាតយ៉ៃ (កងពលទី៥៦ — មូលដ្ឋានបម្រុងយន្តហោះចម្បាំង)',
+    nameEn: 'Hat Yai RTAF Base — Wing 56 (Forward Fighter Base)',
+    nameTh: 'กองบิน 56 หาดใหญ่',
+    branch: 'airforce',
+    scale: 'major',
+    region: 'south',
+    provinceKm: 'សុងខ្លា (ហាតយ៉ៃ)',
+    provinceEn: 'Songkhla',
+    commandKm: 'កងពលអាកាសទី៥៦',
+    lat: 6.9332,
+    lng: 100.3929,
+    elevationM: 28,
+    established: '1990',
+    facilityTypeKm: 'មូលដ្ឋានបម្រុងយន្តហោះចម្បាំងភាគខាងត្បូង',
+    runwayOrPort: 'ផ្លូវរត់ 3,050 m (VTSS)',
+    summaryKm: 'មូលដ្ឋានទ័ពអាកាសជួរមុខភាគខាងត្បូង មានលេណដ្ឋានការពារយន្តហោះសម្រាប់ដាក់ពង្រាយយន្តហោះចម្បាំង JAS 39 Gripen និង F-16 ក្នុងប្រតិបត្តិការការពារដែនអាកាសភាគខាងត្បូង។',
+    keyUnitsKm: ['កងពលអាកាសទី៥៦', 'ទីតាំងដាក់ពង្រាយបម្រុង Gripen / F-16'],
+    isFighterBase: true,
+    aircraftTypes: ['Gripen / F-16 (បម្រុង)'],
+  },
+  {
+    id: 'rtaf-nam-phong',
+    nameKm: 'អាកាសយានដ្ឋានយោធាណាំផង (មូលដ្ឋានបម្រុង F-16 ឦសាន)',
+    nameEn: 'Nam Phong RTAF Dispersal Airfield (Khon Kaen)',
+    nameTh: 'ฝูงบิน 237 น้ำพอง (ขอนแก่น)',
+    branch: 'airforce',
+    scale: 'camp',
+    region: 'northeast',
+    provinceKm: 'ខនកែន',
+    provinceEn: 'Khon Kaen',
+    commandKm: 'កងពលអាកាសទី២៣ (អង្គភាពណាំផង ២៣៧)',
+    lat: 16.6522,
+    lng: 102.9661,
+    elevationM: 185,
+    established: '1972',
+    facilityTypeKm: 'អាកាសយានដ្ឋានបម្រុងយន្តហោះចម្បាំង F-16',
+    runwayOrPort: 'ផ្លូវរត់ 3,000 m (អាកាសយានដ្ឋានយោធាណាំផង)',
+    summaryKm: 'អាកាសយានដ្ឋានយោធាប្រវត្តិសាស្ត្រនៅខេត្តខនកែន មានផ្លូវរត់វែង ៣,០០០ ម៉ែត្រ ប្រើប្រាស់ជាមូលដ្ឋានដាក់ពង្រាយបម្រុង និងហ្វឹកហាត់សម្រាប់យន្តហោះចម្បាំង F-16 និង Alpha Jet នៅភូមិភាគឦសាន។',
+    keyUnitsKm: ['អង្គភាពអាកាសយានដ្ឋានណាំផង (២៣៧)', 'ទីតាំងបម្រុង F-16 / Alpha Jet'],
+    isFighterBase: true,
+    aircraftTypes: ['F-16 / Alpha Jet (បម្រុង)'],
+  },
+  {
+    id: 'rtaf-prachuap-wing5',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសប្រាជួបគិរីខ័ន្ធ (កងពលទី៥)',
+    nameEn: 'Prachuap Khiri Khan RTAF Base — Wing 5 (Ao Manao)',
+    nameTh: 'กองบิน 5 ประจวบคีรีขันธ์',
+    branch: 'airforce',
+    scale: 'major',
+    region: 'central',
+    provinceKm: 'ប្រាជួបគិរីខ័ន្ធ',
+    provinceEn: 'Prachuap Khiri Khan',
+    commandKm: 'កងពលអាកាសទី៥',
+    lat: 11.7885,
+    lng: 99.8038,
+    elevationM: 5,
+    established: '1922',
+    facilityTypeKm: 'មូលដ្ឋានយន្តហោះវាយប្រហារធុនស្រាល និងល្បាតឆ្នេរ',
+    runwayOrPort: 'ផ្លូវរត់ 1,800 m (VTBP)',
+    summaryKm: 'មូលដ្ឋានទ័ពអាកាសប្រវត្តិសាស្ត្រនៅឈូងសមុទ្រអាវម៉ាណាវ ប្រតិបត្តិការយន្តហោះ AU-23A Peacemaker សម្រាប់ការល្បាត និងគាំទ្រតាមតំបន់ឆ្នេរ។',
+    keyUnitsKm: ['កងអនុសេនាធំទី៥០១ (AU-23A Peacemaker)'],
+    isFighterBase: true,
+    aircraftTypes: ['AU-23A Peacemaker'],
+  },
+  {
+    id: 'rtaf-phitsanulok-wing46',
+    nameKm: 'មូលដ្ឋានទ័ពអាកាសពិស្ណុលោក (កងពលទី៤៦)',
+    nameEn: 'Phitsanulok RTAF Base — Wing 46',
+    nameTh: 'กองบิน 46 พิษณุโลก',
+    branch: 'airforce',
+    scale: 'major',
+    region: 'north',
+    provinceKm: 'ពិស្ណុលោក',
+    provinceEn: 'Phitsanulok',
+    commandKm: 'កងពលអាកាសទី៤៦',
+    lat: 16.7829,
+    lng: 100.2791,
+    elevationM: 47,
+    established: '1978',
+    facilityTypeKm: 'មូលដ្ឋានដឹកជញ្ជូនយុទ្ធសាស្ត្រ និងគាំទ្រភាគខាងជើង',
+    runwayOrPort: 'ផ្លូវរត់ 3,000 m (VTPP)',
+    summaryKm: 'មូលដ្ឋានកងពលអាកាសទី៤៦ នៅខេត្តពិស្ណុលោក ប្រតិបត្តិការយន្តហោះដឹកជញ្ជូន BT-67 និងគាំទ្រការពារដែនអាកាសភាគខាងជើង។',
+    keyUnitsKm: ['កងអនុសេនាធំទី៤៦១ (BT-67)'],
   },
   {
     id: 'rtaf-kamphaeng-saen',
@@ -1527,3 +1629,224 @@ export function zoomToAltitudeKm(zoom: number, lat: number): number {
     (earthCircumferenceKm * 1000 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom + 8);
   return Math.max(0.15, (metersPerPixel * 900) / 1000);
 }
+
+// Centered real high-resolution satellite snapshot (Web Mercator 3857, unstretched)
+export function getSatelliteExportUrl(
+  lat: number,
+  lng: number,
+  options?: { halfHeightKm?: number; width?: number; height?: number }
+): string {
+  const width = options?.width ?? 480;
+  const height = options?.height ?? 270;
+  const halfHeightKm = options?.halfHeightKm ?? 0.65;
+  const aspect = width / height;
+  const dLat = halfHeightKm / 111.32;
+  const cosLat = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+  const dLng = (halfHeightKm * aspect) / (111.32 * cosLat);
+  const bbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat]
+    .map((n) => n.toFixed(6))
+    .join(',');
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&size=${width},${height}&imageSR=3857&format=jpg&f=image`;
+}
+
+// Fast CDN-cached Esri satellite tile URL for list thumbnails and fallback
+export function getSatelliteTileUrl(lat: number, lng: number, zoom = 15): string {
+  const z = Math.max(10, Math.min(17, Math.round(zoom)));
+  const n = Math.pow(2, z);
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+}
+
+export type ArsenalDensity = 'high' | 'medium' | 'low';
+
+export interface PublicArsenalProfile {
+  density: ArsenalDensity;
+  densityLabelKm: string;
+  densityShortKm: string;
+  estimatedScaleScore: number;
+  primaryCategoriesKm: string[];
+  documentedSystems: string[];
+  noteKm: string;
+}
+
+// Publicly documented order-of-battle & equipment class assessment (strictly open-source, non-live)
+export function getPublicArsenalProfile(base: MilitaryBase): PublicArsenalProfile {
+  const text = `${base.id} ${base.nameKm} ${base.nameEn} ${base.facilityTypeKm} ${base.summaryKm} ${base.keyUnitsKm.join(' ')}`.toLowerCase();
+
+  // 1. Primary Combat Fighter Wings (F-16, Gripen, F-5TH)
+  if (
+    base.id === 'rtaf-korat-wing1' ||
+    base.id === 'rtaf-takhli-wing4' ||
+    base.id === 'rtaf-suratthani-wing7' ||
+    base.id === 'rtaf-ubon-wing21'
+  ) {
+    return {
+      density: 'high',
+      densityLabelKm: 'ច្រើន (មូលដ្ឋានយុទ្ធសាស្ត្រស្នូល)',
+      densityShortKm: 'ច្រើន',
+      estimatedScaleScore: base.id === 'rtaf-korat-wing1' ? 94 : 88,
+      primaryCategoriesKm: [
+        'យន្តហោះចម្បាំងប្រចាំការ',
+        'ឃ្លាំងមីស៊ីល និងគ្រាប់បែកអាកាស',
+        'ប្រព័ន្ធរ៉ាដា និងការពារដែនអាកាស',
+      ],
+      documentedSystems: [
+        ...(base.aircraftTypes ?? []),
+        'AIM-120 / AIM-9 / IRIS-T (តាមឯកសារសាធារណៈ)',
+        'ឃ្លាំងបេតុងការពារយន្តហោះ (HAS)',
+      ],
+      noteKm:
+        'មូលដ្ឋានទ័ពអាកាសស្នូលដែលមានហ្វូងយន្តហោះចម្បាំង ផ្លូវរត់ 3,000m ឃ្លាំងយន្តហោះ និងស្តុកគ្រឿងបរិក្ខារអាកាសកម្រិតខ្ពស់តាមទិន្នន័យសាធារណៈ។',
+    };
+  }
+
+  // 2. Secondary Light Attack Airbases & Forward Fighter Dispersal Airfields
+  if (base.isFighterBase) {
+    return {
+      density: 'medium',
+      densityLabelKm: 'មធ្យម (កងអាកាសវាយប្រហារ/បម្រុង)',
+      densityShortKm: 'មធ្យម',
+      estimatedScaleScore: base.scale === 'major' ? 68 : 56,
+      primaryCategoriesKm: [
+        'យន្តហោះវាយប្រហារស្រាល / បម្រុង',
+        'ទីលានចត និងឃ្លាំងស្តុកប្រេងអាកាស',
+      ],
+      documentedSystems: [
+        ...(base.aircraftTypes ?? []),
+        'គ្រាប់បែក និងរ៉ុក្កែតអាកាស-ដី',
+        'ប្រព័ន្ធគាំទ្រផ្លូវរត់យោធា',
+      ],
+      noteKm:
+        'មូលដ្ឋានយន្តហោះវាយប្រហារស្រាល ឬអាកាសយានដ្ឋានបម្រុងសម្រាប់បញ្ជូនយន្តហោះចម្បាំងក្នុងករណីចាំបាច់។',
+    };
+  }
+
+  // 3. Major Naval Fleet Bases (Sattahip / U-Tapao / Phang Nga / Songkhla)
+  if (base.branch === 'navy' && base.scale === 'major') {
+    const isSattahip = text.includes('sattahip') || text.includes('សត្តាហ៊ីប') || text.includes('u-tapao');
+    return {
+      density: isSattahip ? 'high' : 'medium',
+      densityLabelKm: isSattahip ? 'ច្រើន (មូលដ្ឋាននាវាចម្បាំងធំបំផុត)' : 'មធ្យម (មូលដ្ឋានកងទ័ពជើងទឹក)',
+      densityShortKm: isSattahip ? 'ច្រើន' : 'មធ្យម',
+      estimatedScaleScore: isSattahip ? 92 : 66,
+      primaryCategoriesKm: isSattahip
+        ? ['នាវាចម្បាំង និងនាវាផ្ទុកឧទ្ធម្ភាគចក្រ', 'មីស៊ីលប្រឆាំងនាវា និងកាំភ្លើងជើងទឹក', 'កងម៉ារីន និងការពារឆ្នេរ']
+        : ['នាវាល្បាតឆ្នេរសមុទ្រ', 'ប្រព័ន្ធរ៉ាដាដែនសមុទ្រ'],
+      documentedSystems: isSattahip
+        ? ['HTMS Chakri Naruebet', 'នាវាហ្វ្រីហ្គេត DW3000F / Naresuan', 'មីស៊ីល Harpoon / C-802A', 'រថពាសដែក AAV7A1']
+        : ['នាវាល្បាត OPV / Fast Attack Craft', 'កាំភ្លើងការពារឆ្នេរ និងប្រព័ន្ធរ៉ាដា'],
+      noteKm:
+        'វាយតម្លៃតាមទិន្នន័យសាធារណៈនៃកងនាវាជើងទឹកភូមិន្ទថៃ និងកំពង់ផែយោធា។',
+    };
+  }
+
+  // 4. Artillery Centers / Armor & Cavalry Divisions / Army Aviation / Major Combat Divisions
+  if (
+    text.includes('artillery') ||
+    text.includes('កាំភ្លើងធំ') ||
+    text.includes('cavalry') ||
+    text.includes('រថក្រោះ') ||
+    text.includes('រថពាសដែក') ||
+    text.includes('ទ័ពសេះ') ||
+    text.includes('aviation') ||
+    text.includes('ឧទ្ធម្ភាគចក្រ') ||
+    text.includes('special warfare') ||
+    text.includes('ទ័ពពិសេស') ||
+    text.includes('2nd infantry') ||
+    text.includes('9th infantry') ||
+    text.includes('suranaree') ||
+    text.includes('សុរនារី')
+  ) {
+    const isArtillery = text.includes('artillery') || text.includes('កាំភ្លើងធំ');
+    const isArmor =
+      text.includes('cavalry') ||
+      text.includes('រថក្រោះ') ||
+      text.includes('រថពាសដែក') ||
+      text.includes('ទ័ពសេះ') ||
+      text.includes('2nd infantry');
+    const isAviation = text.includes('aviation') || text.includes('ឧទ្ធម្ភាគចក្រ');
+
+    return {
+      density: base.scale === 'major' ? 'high' : 'medium',
+      densityLabelKm:
+        base.scale === 'major'
+          ? 'ច្រើន (អង្គភាពអាវុធធ្ងន់ស្នូល)'
+          : 'មធ្យម (កងពលជួរមុខ / យានយន្តប្រយុទ្ធ)',
+      densityShortKm: base.scale === 'major' ? 'ច្រើន' : 'មធ្យម',
+      estimatedScaleScore: base.scale === 'major' ? 86 : 62,
+      primaryCategoriesKm: isArtillery
+        ? ['កាំភ្លើងធំបាញ់ស្វ័យប្រវត្តិ 155mm', 'ប្រព័ន្ធរ៉ុក្កែតបាញ់ច្រើនគ្រាប់ (MLRS)', 'ឃ្លាំងគ្រាប់កាំភ្លើងធំ']
+        : isArmor
+          ? ['រថក្រោះប្រយុទ្ធសំខាន់ (MBT)', 'រថពាសដែកដឹកទ័ព (APC/IFV)', 'អាវុធប្រឆាំងរថក្រោះ']
+          : isAviation
+            ? ['ឧទ្ធម្ភាគចក្រប្រយុទ្ធ និងដឹកជញ្ជូន', 'ឃ្លាំងថែទាំ និងប្រេងឥន្ធនៈអាកាស']
+            : ['រថពាសដែក និងអាវុធគាំទ្រថ្មើរជើង', 'កាំភ្លើងត្បាល់ និងអាវុធធ្ងន់កងពល'],
+      documentedSystems: isArtillery
+        ? ['CAESAR 155mm', 'ATMOS 2000 155mm', 'M198 / LG1 Mk II', 'DTI-1G / SR-4 MLRS']
+        : isArmor
+          ? ['VT-4 MBT', 'T-84 Oplot-M', 'M60A3', 'Stryker M1126 / BTR-3E1']
+          : isAviation
+            ? ['UH-60 Black Hawk', 'AH-1F Cobra', 'Mi-17V-5', 'Bell 212 / AS550']
+            : ['Stryker / BTR-3E1', 'កាំភ្លើងធំគាំទ្រ 105mm/155mm', 'អាវុធថ្មើរជើងស្តង់ដារ'],
+      noteKm:
+        'កម្រិតអាវុធធ្ងន់ផ្អែកលើរចនាសម្ព័ន្ធកងពលសាធារណៈរបស់កងទ័ពជើងគោកថៃ (មិនមែនជាការរាប់ផ្ទាល់តាមពេលវេលាជាក់ស្តែងទេ)។',
+    };
+  }
+
+  // 5. Major Regional HQs / Support Airbases / Training Centers
+  if (base.scale === 'major' || base.branch === 'hq') {
+    return {
+      density: 'medium',
+      densityLabelKm: 'មធ្យម (ទីបញ្ជាការ និងភស្តុភារ)',
+      densityShortKm: 'មធ្យម',
+      estimatedScaleScore: 56,
+      primaryCategoriesKm:
+        base.branch === 'airforce'
+          ? ['យន្តហោះដឹកជញ្ជូន និងសង្កេតការណ៍', 'ទីលានហោះហើរ និងភស្តុភារ']
+          : ['ទីបញ្ជាការដ្ឋាន និងបណ្តាញទំនាក់ទំនង', 'អង្គភាពការពារមូលដ្ឋាន និងយានយន្តយោធា'],
+      documentedSystems:
+        base.branch === 'airforce'
+          ? ['C-130H Hercules', 'BT-67 / Airbus Transport', 'យន្តហោះសង្កេតការណ៍ និងហ្វឹកហាត់']
+          : ['យានយន្តបញ្ជាការ និងទំនាក់ទំនង', 'អាវុធធុនស្រាល និងកងការពារបញ្ជាការដ្ឋាន'],
+      noteKm:
+        'មូលដ្ឋានផ្តោតសំខាន់លើការបញ្ជាការ ភស្តុភារ ការដឹកជញ្ជូន ឬការហ្វឹកហាត់ ដោយមានស្តុកអាវុធធ្ងន់តិចជាងកងពលប្រយុទ្ធផ្ទាល់។',
+    };
+  }
+
+  // 6. Border Camps / Infantry Task Forces vs Small Local / OSM Camps
+  const isBorderTaskForce =
+    text.includes('ព្រំដែន') ||
+    text.includes('task force') ||
+    text.includes('ភារកិច្ច') ||
+    text.includes('វរសេនា') ||
+    text.includes('infantry') ||
+    text.includes('ranger') ||
+    text.includes('ទាហានព្រាន');
+
+  if (isBorderTaskForce) {
+    return {
+      density: 'medium',
+      densityLabelKm: 'មធ្យម-ទាប (បន្ទាយប្រចាំការជួរមុខ)',
+      densityShortKm: 'មធ្យម',
+      estimatedScaleScore: 46,
+      primaryCategoriesKm: ['កងល្បាតព្រំដែន និងថ្មើរជើង', 'យានយន្តពាសដែកស្រាល និងកាំភ្លើងត្បាល់'],
+      documentedSystems: ['រថយន្តយោធាពាសដែកស្រាល', 'កាំភ្លើងត្បាល់ 81mm/120mm', 'អាវុធថ្មើរជើងស្តង់ដារ'],
+      noteKm:
+        'បន្ទាយប្រចាំការកម្រិតកងវរសេនាតូច/ភារកិច្ចតាមតំបន់ព្រំដែន មានអាវុធធុនស្រាលដល់មធ្យមសម្រាប់ល្បាត និងការពារមូលដ្ឋាន។',
+    };
+  }
+
+  return {
+    density: 'low',
+    densityLabelKm: 'តិច (បន្ទាយមូលដ្ឋាន / មណ្ឌលយោធាខេត្ត)',
+    densityShortKm: 'តិច',
+    estimatedScaleScore: 28,
+    primaryCategoriesKm: ['អង្គភាពរដ្ឋបាលយោធាខេត្ត', 'អាវុធធុនស្រាលការពារបន្ទាយ'],
+    documentedSystems: ['អាវុធថ្មើរជើងធុនស្រាល', 'រថយន្តដឹកជញ្ជូនយោធាទូទៅ'],
+    noteKm:
+      'បន្ទាយខ្នាតតូច ឬមណ្ឌលយោធាប្រចាំខេត្ត ដែលភាគច្រើនគ្រប់គ្រងរដ្ឋបាល កម្លាំងបម្រុង និងការពារសន្តិសុខមូលដ្ឋាន។',
+  };
+}
+

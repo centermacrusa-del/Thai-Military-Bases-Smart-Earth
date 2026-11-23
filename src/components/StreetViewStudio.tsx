@@ -195,7 +195,7 @@ export default function StreetViewStudio({
         const res = await fetch(
           `/api/streetview/kartaview?lat=${activeCoord.lat.toFixed(5)}&lng=${activeCoord.lng.toFixed(
             5
-          )}&radius=3000`,
+          )}&radius=500`,
           { signal: controller.signal }
         );
         const data = await res.json();
@@ -208,7 +208,7 @@ export default function StreetViewStudio({
         setFrameIndex(0);
         if (list.length === 0) {
           setFramesError(
-            'មិនទាន់មានរូបភាព KartaView ក្នុងរង្វង់ 3 km ពីទីតាំងនេះទេ។ សូមប្រើ Street View 360° ផ្ទាល់ ឬជ្រើសរើសផ្លូវជិតទីក្រុង។'
+            'មិនទាន់មានរូបភាព KartaView នៅតាមផ្លូវជិតទីតាំងនេះទេ។ សូមប្រើ Street View 360° ផ្ទាល់ ឬជ្រើសរើសផ្លូវជិតទីក្រុង។'
           );
         }
       } catch (err) {
