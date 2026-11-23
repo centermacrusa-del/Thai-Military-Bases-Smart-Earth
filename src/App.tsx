@@ -26,6 +26,7 @@ import RadarScanPanel, { type RadarDetection } from './components/RadarScanPanel
 import RadarDetectionCard from './components/RadarDetectionCard';
 import StreetViewStudio, { type StreetViewLocation } from './components/StreetViewStudio';
 import ThermalOrdnanceScanner from './components/ThermalOrdnanceScanner';
+import { radarAudio } from './utils/radarAudio';
 import {
   bearingDegrees,
   bearingToCompassKm,
@@ -98,6 +99,7 @@ export default function App() {
   const [radarCardTargetId, setRadarCardTargetId] = useState<string | null>(null);
   const [radarCardDismissed, setRadarCardDismissed] = useState(false);
   const lastRadarCardAutoSwitchRef = useRef(0);
+  const [radarSoundEnabled, setRadarSoundEnabled] = useState(true);
 
   // Live OpenStreetMap discovered small camps
   const [osmSites, setOsmSites] = useState<MilitaryBase[]>([]);
@@ -163,6 +165,40 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [measureMode, streetDropMode, streetViewLocation, selectedBase]);
 
+  // Unlock Web Audio API on first user gesture and sync suspenseful ambient drone with scan state & tab visibility
+  useEffect(() => {
+    const handleUnlock = () => {
+      radarAudio.unlock();
+      if (radarSoundEnabled && radarActive && radarScanning && !document.hidden) {
+        radarAudio.setScanningAmbient(true);
+      }
+    };
+    window.addEventListener('pointerdown', handleUnlock, { passive: true });
+    window.addEventListener('keydown', handleUnlock, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleUnlock);
+      window.removeEventListener('keydown', handleUnlock);
+    };
+  }, [radarSoundEnabled, radarActive, radarScanning]);
+
+  useEffect(() => {
+    radarAudio.setEnabled(radarSoundEnabled);
+  }, [radarSoundEnabled]);
+
+  useEffect(() => {
+    const syncAmbient = () => {
+      const shouldPlay =
+        radarSoundEnabled && radarActive && radarScanning && !document.hidden && !streetViewLocation;
+      radarAudio.setScanningAmbient(shouldPlay);
+    };
+    syncAmbient();
+    document.addEventListener('visibilitychange', syncAmbient);
+    return () => {
+      document.removeEventListener('visibilitychange', syncAmbient);
+      radarAudio.setScanningAmbient(false);
+    };
+  }, [radarSoundEnabled, radarActive, radarScanning, streetViewLocation]);
+
   // Combine verified catalog installations + any live OSM discovered small camps
   const allBases = useMemo(() => {
     if (osmSites.length === 0) return THAI_MILITARY_BASES;
@@ -204,15 +240,25 @@ export default function App() {
         const next = (prev + dt * 54) % 360;
         sweepAngleRef.current = next;
 
+        // Play deep echoing radar sweep pulse every half revolution (0° and 180°)
+        if (next < prev || (prev < 180 && next >= 180)) {
+          radarAudio.playSweepPulse();
+        }
+
         // Check newly swept installations
         const newlyHit: string[] = [];
+        let hasHighPriorityHit = false;
         for (const item of radarCandidatesRef.current) {
           if (angleInSweepArc(prev, next, item.bearingDeg)) {
             newlyHit.push(item.base.id);
+            if (item.base.isFighterBase || item.base.scale === 'major') {
+              hasHighPriorityHit = true;
+            }
           }
         }
 
         if (newlyHit.length > 0) {
+          radarAudio.playTargetLock(hasHighPriorityHit);
           const hitId = newlyHit[newlyHit.length - 1];
           setDetectedIds((existing) => {
             const existingSet = new Set(existing);
@@ -953,8 +999,27 @@ export default function App() {
                 }}
                 sweepAngle={sweepAngle}
                 isScanning={radarScanning}
-                onToggleScanning={() => setRadarScanning((v) => !v)}
-                onResetSweep={handleResetSweep}
+                onToggleScanning={() => {
+                  radarAudio.unlock();
+                  setRadarScanning((v) => !v);
+                }}
+                onResetSweep={() => {
+                  radarAudio.unlock();
+                  handleResetSweep();
+                  radarAudio.playSweepPulse();
+                }}
+                soundEnabled={radarSoundEnabled}
+                onToggleSound={() => {
+                  setRadarSoundEnabled((prev) => {
+                    const next = !prev;
+                    radarAudio.setEnabled(next);
+                    if (next) {
+                      radarAudio.unlock();
+                      radarAudio.playSweepPulse();
+                    }
+                    return next;
+                  });
+                }}
                 scaleFilter={radarScaleFilter}
                 onChangeScaleFilter={(s) => {
                   setRadarScaleFilter(s);
@@ -1480,6 +1545,18 @@ export default function App() {
         <ThermalOrdnanceScanner
           base={thermalScanBase}
           allBases={allBases}
+          soundEnabled={radarSoundEnabled}
+          onToggleSound={() => {
+            setRadarSoundEnabled((prev) => {
+              const next = !prev;
+              radarAudio.setEnabled(next);
+              if (next) {
+                radarAudio.unlock();
+                radarAudio.playThermalSweep();
+              }
+              return next;
+            });
+          }}
           onChangeBase={(nextBase) => {
             setThermalScanBase(nextBase);
             setSelectedBase(nextBase);

@@ -58,6 +58,7 @@ const osmScanCache = new TtlCache<{ sites: unknown[]; radiusKm: number }>(100);
 const kartaViewCache = new TtlCache<unknown[]>(100);
 const satelliteImgCache = new TtlCache<Buffer>(64);
 const baseInfraCache = new TtlCache<unknown>(100);
+const imageryHistoryCache = new TtlCache<unknown>(160);
 const briefingCache = new TtlCache<{
   historyKm: string;
   terrainKm: string;
@@ -1062,6 +1063,181 @@ app.get('/api/scanner/infrastructure', async (req, res) => {
       total: 0,
       radiusM: 1500,
       degraded: true,
+    });
+  }
+});
+
+interface WaybackRelease {
+  releaseId: number;
+  date: string;
+  year: string;
+  title: string;
+  tileTemplate: string;
+}
+
+let cachedWaybackReleases: { items: WaybackRelease[]; expiresAt: number } | null = null;
+
+async function getWaybackReleases(): Promise<WaybackRelease[]> {
+  if (cachedWaybackReleases && Date.now() < cachedWaybackReleases.expiresAt) {
+    return cachedWaybackReleases.items;
+  }
+
+  const upstream = await fetchWithTimeout(
+    'https://s3-us-west-2.amazonaws.com/config.maptiles.arcgis.com/waybackconfig.json',
+    {
+      headers: {
+        'User-Agent': 'ThaiGeoEarthExplorer/1.0',
+        Accept: 'application/json',
+      },
+    },
+    10000
+  );
+
+  if (!upstream.ok) {
+    throw new Error(`Wayback config HTTP ${upstream.status}`);
+  }
+
+  const raw = (await upstream.json()) as Record<
+    string,
+    { itemTitle?: string; itemURL?: string }
+  >;
+
+  const releases: WaybackRelease[] = [];
+  for (const [key, entry] of Object.entries(raw)) {
+    const releaseId = Number(key);
+    if (!Number.isFinite(releaseId) || !entry?.itemURL) continue;
+    const title = sanitizeText(entry.itemTitle || '', 120);
+    const match = title.match(/(\d{4}-\d{2}-\d{2})/);
+    if (!match) continue;
+    const date = match[1];
+    releases.push({
+      releaseId,
+      date,
+      year: date.slice(0, 4),
+      title,
+      tileTemplate: entry.itemURL,
+    });
+  }
+
+  // Sort newest first for chained tilemap walking
+  releases.sort((a, b) => b.date.localeCompare(a.date));
+  cachedWaybackReleases = {
+    items: releases,
+    expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+  };
+  return releases;
+}
+
+function latLngToTileXY(lat: number, lng: number, zoom: number): { row: number; col: number } {
+  const n = Math.pow(2, zoom);
+  const col = Math.floor(((lng + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const row = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
+  );
+  return { row, col };
+}
+
+// Public Historical Satellite Imagery Timeline via Esri World Imagery Wayback (Zero API Key)
+app.get('/api/imagery/history', async (req, res) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const zoom = Math.round(clamp(Number(req.query.zoom) || 15, 14, 16));
+
+    if (!isValidCoord(lat, lng)) {
+      res.status(400).json({ snapshots: [], error: 'កូអរដោណេមិនត្រឹមត្រូវ។' });
+      return;
+    }
+
+    const cacheKey = `${lat.toFixed(3)}:${lng.toFixed(3)}:${zoom}`;
+    const cached = imageryHistoryCache.get(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
+    const allReleasesNewestFirst = await getWaybackReleases();
+    const idxById = new Map<number, number>(
+      allReleasesNewestFirst.map((rel, idx) => [rel.releaseId, idx])
+    );
+
+    const { row, col } = latLngToTileXY(lat, lng, zoom);
+    const localChanges: WaybackRelease[] = [];
+    const seenIds = new Set<number>();
+
+    // Walk Esri Wayback's local-change tilemap chain to find genuine historical captures at this base
+    let cursor = 0;
+    let steps = 0;
+    while (cursor < allReleasesNewestFirst.length && localChanges.length < 16 && steps < 20) {
+      steps += 1;
+      const candidate = allReleasesNewestFirst[cursor];
+      try {
+        const tmUrl = `https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tilemap/${candidate.releaseId}/${zoom}/${row}/${col}`;
+        const tmRes = await fetchWithTimeout(
+          tmUrl,
+          {
+            headers: {
+              'User-Agent': 'ThaiGeoEarthExplorer/1.0',
+              Accept: 'application/json',
+            },
+          },
+          4500
+        );
+        if (!tmRes.ok) break;
+        const tmJson = (await tmRes.json()) as {
+          data?: number[];
+          select?: number[];
+        };
+        if (!Array.isArray(tmJson.data) || tmJson.data[0] !== 1) break;
+
+        const actualId =
+          Array.isArray(tmJson.select) && typeof tmJson.select[0] === 'number'
+            ? tmJson.select[0]
+            : candidate.releaseId;
+
+        const actualIdx = idxById.get(actualId);
+        if (actualIdx === undefined) break;
+
+        const matched = allReleasesNewestFirst[actualIdx];
+        if (!seenIds.has(matched.releaseId)) {
+          seenIds.add(matched.releaseId);
+          localChanges.push(matched);
+        }
+        cursor = actualIdx + 1;
+      } catch {
+        break;
+      }
+    }
+
+    // Fallback: if tilemap chain returned < 2 snapshots, sample 1 release per year (2014 -> latest)
+    let chronological: WaybackRelease[];
+    if (localChanges.length >= 2) {
+      chronological = localChanges.reverse();
+    } else {
+      const byYear = new Map<string, WaybackRelease>();
+      for (const rel of allReleasesNewestFirst) {
+        if (!byYear.has(rel.year)) {
+          byYear.set(rel.year, rel);
+        }
+      }
+      chronological = Array.from(byYear.values()).sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    const payload = {
+      zoom,
+      snapshots: chronological,
+      localChangeFiltered: localChanges.length >= 2,
+      source: 'Esri World Imagery Wayback',
+    };
+
+    imageryHistoryCache.set(cacheKey, payload, 30 * 60 * 1000);
+    res.json(payload);
+  } catch (err) {
+    console.warn('Historical imagery lookup fallback:', err instanceof Error ? err.message : err);
+    res.status(502).json({
+      snapshots: [],
+      error: 'មិនអាចទាញយកប្រវត្តិរូបភាពផ្កាយរណបបានទេនៅពេលនេះ។',
     });
   }
 });

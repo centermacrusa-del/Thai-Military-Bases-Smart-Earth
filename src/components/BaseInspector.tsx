@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Camera,
   Check,
@@ -6,6 +6,7 @@ import {
   Eye,
   ExternalLink,
   Flame,
+  History,
   Image as ImageIcon,
   Loader2,
   Orbit,
@@ -15,6 +16,11 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import {
+  HistoricalSatelliteViewport,
+  type HistoricalSnapshot,
+  HistorySliderControls,
+} from './HistoricalSatelliteViewer';
 import {
   bearingDegrees,
   bearingToCompassKm,
@@ -53,8 +59,9 @@ interface BaseInspectorProps {
 
 const briefingClientCache = new Map<string, BriefingData>();
 const inspectorStreetCache = new Map<string, string | null>();
+const inspectorHistoryCache = new Map<string, HistoricalSnapshot[]>();
 
-type PreviewMode = 'sat-close' | 'sat-wide' | 'street';
+type PreviewMode = 'sat-close' | 'sat-wide' | 'history' | 'street';
 
 export default function BaseInspector({
   base,
@@ -81,6 +88,16 @@ export default function BaseInspector({
     () => inspectorStreetCache.get(base.id) ?? null
   );
 
+  // Historical Satellite Imagery (Wayback) state
+  const [historyZoom, setHistoryZoom] = useState<number>(15);
+  const [historySnapshots, setHistorySnapshots] = useState<HistoricalSnapshot[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [historyRetryNonce, setHistoryRetryNonce] = useState(0);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSplitPct, setCompareSplitPct] = useState(50);
+
   const abortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<number | null>(null);
 
@@ -93,6 +110,8 @@ export default function BaseInspector({
     setCopied(false);
     setPreviewMode('sat-close');
     setSatFallback(false);
+    setCompareMode(false);
+    setCompareSplitPct(50);
 
     let streetCtrl: AbortController | null = null;
     if (inspectorStreetCache.has(base.id)) {
@@ -123,6 +142,69 @@ export default function BaseInspector({
       streetCtrl?.abort();
     };
   }, [base.id, base.lat, base.lng]);
+
+  // Fetch public Esri World Imagery Wayback historical captures for the selected military base
+  useEffect(() => {
+    const cacheKey = `${base.id}:${historyZoom}`;
+    const cached = inspectorHistoryCache.get(cacheKey);
+    if (cached && cached.length > 0 && historyRetryNonce === 0) {
+      setHistorySnapshots(cached);
+      setHistoryIndex(cached.length - 1);
+      setHistoryError(null);
+      setHistoryLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setHistoryLoading(true);
+    setHistoryError(null);
+
+    fetch(
+      `/api/imagery/history?lat=${base.lat.toFixed(5)}&lng=${base.lng.toFixed(5)}&zoom=${historyZoom}`,
+      { signal: controller.signal }
+    )
+      .then(async (r) => {
+        const json = (await r.json()) as {
+          snapshots?: HistoricalSnapshot[];
+          error?: string;
+        };
+        if (!r.ok) {
+          throw new Error(json.error || 'មិនអាចទាញយកប្រវត្តិផ្កាយរណបបានទេ។');
+        }
+        return Array.isArray(json.snapshots) ? json.snapshots : [];
+      })
+      .then((list) => {
+        if (controller.signal.aborted) return;
+        if (list.length > 0) {
+          inspectorHistoryCache.set(cacheKey, list);
+          setHistorySnapshots(list);
+          setHistoryIndex((prev) =>
+            prev >= 0 && prev < list.length ? prev : list.length - 1
+          );
+        } else {
+          setHistorySnapshots([]);
+          setHistoryError('ពុំមានទិន្នន័យរូបភាពប្រវត្តិសម្រាប់ទីតាំងនេះទេ។');
+        }
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setHistoryError(
+          err instanceof Error ? err.message : 'មានបញ្ហាបណ្តាញពេលទាញប្រវត្តិផ្កាយរណប។'
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [base.id, base.lat, base.lng, historyZoom, historyRetryNonce]);
+
+  const handleSelectHistoryIndex = useCallback((idx: number) => {
+    setHistoryIndex(idx);
+    setPreviewMode('history');
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -242,52 +324,73 @@ export default function BaseInspector({
 
       {/* Scrollable Inspector Body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-        {/* Live Satellite & Roadside Visual Imagery Preview */}
+        {/* Live Satellite, Historical Wayback Timeline & Roadside Visual Imagery Preview */}
         <div className="rounded-xl overflow-hidden border border-slate-800 bg-[#05080F]">
           <div className="relative aspect-[16/9] w-full bg-[#05080F] overflow-hidden">
-            <img
-              key={`${base.id}-${previewMode}-${satFallback}`}
-              src={
-                previewMode === 'street' && streetPreviewUrl
-                  ? streetPreviewUrl
-                  : satFallback
-                    ? getSatelliteTileUrl(base.lat, base.lng, previewMode === 'sat-wide' ? 14 : 15)
-                    : getSatelliteExportUrl(base.lat, base.lng, {
-                        halfHeightKm:
-                          previewMode === 'sat-wide'
-                            ? base.scale === 'camp'
-                              ? 1.15
-                              : 1.85
-                            : base.scale === 'camp'
-                              ? 0.38
-                              : 0.75,
-                        width: 560,
-                        height: 315,
-                      })
-              }
-              alt={`រូបភាព ${base.nameKm}`}
-              referrerPolicy="no-referrer"
-              onError={() => {
-                if (previewMode === 'street') {
-                  setPreviewMode('sat-close');
-                } else if (!satFallback) {
-                  setSatFallback(true);
-                }
-              }}
-              className="w-full h-full object-cover"
-            />
-            {previewMode !== 'street' && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="w-5 h-5 rounded-full border border-cyan-300/80 bg-cyan-400/10 flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
-                </div>
-              </div>
+            {previewMode === 'history' && historySnapshots[historyIndex] ? (
+              <HistoricalSatelliteViewport
+                lat={base.lat}
+                lng={base.lng}
+                zoom={historyZoom}
+                activeSnapshot={historySnapshots[historyIndex]}
+                latestSnapshot={historySnapshots[historySnapshots.length - 1] ?? null}
+                compareMode={compareMode}
+                compareSplitPct={compareSplitPct}
+                onChangeCompareSplit={setCompareSplitPct}
+                baseNameKm={base.nameKm}
+              />
+            ) : (
+              <>
+                <img
+                  key={`${base.id}-${previewMode}-${satFallback}`}
+                  src={
+                    previewMode === 'street' && streetPreviewUrl
+                      ? streetPreviewUrl
+                      : satFallback
+                        ? getSatelliteTileUrl(base.lat, base.lng, previewMode === 'sat-wide' ? 14 : 15)
+                        : getSatelliteExportUrl(base.lat, base.lng, {
+                            halfHeightKm:
+                              previewMode === 'sat-wide'
+                                ? base.scale === 'camp'
+                                  ? 1.15
+                                  : 1.85
+                                : base.scale === 'camp'
+                                  ? 0.38
+                                  : 0.75,
+                            width: 560,
+                            height: 315,
+                          })
+                  }
+                  alt={`រូបភាព ${base.nameKm}`}
+                  referrerPolicy="no-referrer"
+                  onError={() => {
+                    if (previewMode === 'street') {
+                      setPreviewMode('sat-close');
+                    } else if (!satFallback) {
+                      setSatFallback(true);
+                    }
+                  }}
+                  className="w-full h-full object-cover"
+                />
+                {previewMode !== 'street' && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="w-5 h-5 rounded-full border border-cyan-300/80 bg-cyan-400/10 flex items-center justify-center">
+                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
+                    </div>
+                  </div>
+                )}
+              </>
             )}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#05080F]/92 via-[#05080F]/45 to-transparent px-2.5 pt-5 pb-2 flex items-center justify-between gap-2">
-              <span className="text-[10.5px] font-mono-tabular text-slate-200">
-                {previewMode === 'street' ? 'រូបភាពផ្លូវ HD' : 'រូបភាពផ្កាយរណបជាក់ស្តែង'}
+
+            <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#05080F]/92 via-[#05080F]/45 to-transparent px-2.5 pt-5 pb-2 flex items-center justify-between gap-2">
+              <span className="text-[10.5px] font-mono-tabular text-slate-200 truncate">
+                {previewMode === 'street'
+                  ? 'រូបភាពផ្លូវ HD'
+                  : previewMode === 'history' && historySnapshots[historyIndex]
+                    ? `Wayback ${historySnapshots[historyIndex].date}`
+                    : 'រូបភាពផ្កាយរណបជាក់ស្តែង'}
               </span>
-              <div className="flex items-center gap-1 p-0.5 rounded-md bg-[#070B13]/90 border border-slate-700/80">
+              <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-[#070B13]/90 border border-slate-700/80 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
@@ -317,6 +420,19 @@ export default function BaseInspector({
                 >
                   ទូលាយ
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('history')}
+                  disabled={historySnapshots.length === 0 && !historyLoading}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors disabled:opacity-40 ${
+                    previewMode === 'history'
+                      ? 'bg-amber-500/25 text-amber-200'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <History className="w-2.5 h-2.5" />
+                  <span>ប្រវត្តិ</span>
+                </button>
                 {streetPreviewUrl && (
                   <button
                     type="button"
@@ -328,12 +444,35 @@ export default function BaseInspector({
                     }`}
                   >
                     <ImageIcon className="w-2.5 h-2.5" />
-                    <span>ផ្លូវ HD</span>
+                    <span>ផ្លូវ</span>
                   </button>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Interactive Historical Satellite Imagery Slider (Esri World Imagery Wayback) */}
+          <HistorySliderControls
+            lat={base.lat}
+            lng={base.lng}
+            snapshots={historySnapshots}
+            loading={historyLoading}
+            error={historyError}
+            activeIndex={historyIndex}
+            isHistoryActive={previewMode === 'history'}
+            zoom={historyZoom}
+            compareMode={compareMode}
+            onActivateAndSelectIndex={handleSelectHistoryIndex}
+            onToggleZoom={() => {
+              setHistoryZoom((z) => (z >= 16 ? 15 : 16));
+              setPreviewMode('history');
+            }}
+            onToggleCompare={() => {
+              setPreviewMode('history');
+              setCompareMode((v) => !v);
+            }}
+            onRetry={() => setHistoryRetryNonce((n) => n + 1)}
+          />
         </div>
 
         {/* Primary FLIR Thermal & 4K Street View Launch Actions */}

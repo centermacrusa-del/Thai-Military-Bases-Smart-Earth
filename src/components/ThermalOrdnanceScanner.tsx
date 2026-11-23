@@ -12,6 +12,8 @@ import {
   Radar,
   RefreshCw,
   ShieldAlert,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
@@ -21,6 +23,7 @@ import {
   getPublicArsenalProfile,
   type MilitaryBase,
 } from '../data/bases';
+import { radarAudio } from '../utils/radarAudio';
 
 export type ThermalPalette = 'ironbow' | 'inferno' | 'whitehot' | 'optical';
 
@@ -62,6 +65,8 @@ interface InfraResponse {
 interface ThermalOrdnanceScannerProps {
   base: MilitaryBase;
   allBases: MilitaryBase[];
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   onChangeBase: (base: MilitaryBase) => void;
   onClose: () => void;
   onFlyToBase: (base: MilitaryBase) => void;
@@ -219,6 +224,8 @@ function detectHotspotClusters(thermalMap: Uint8Array, width: number, height: nu
 export default function ThermalOrdnanceScanner({
   base,
   allBases,
+  soundEnabled,
+  onToggleSound,
   onChangeBase,
   onClose,
   onFlyToBase,
@@ -387,9 +394,12 @@ export default function ThermalOrdnanceScanner({
     renderPaletteToCanvas(palette);
   }, [palette, renderPaletteToCanvas]);
 
-  // Smooth animated FLIR scanline sweep when image finishes loading
+  // Smooth animated FLIR scanline sweep + suspenseful infrared sweep audio when image finishes loading
   useEffect(() => {
     if (imgLoading || imgError) return;
+    if (soundEnabled) {
+      radarAudio.playThermalSweep();
+    }
     let rafId = 0;
     const start = performance.now();
     const duration = 1200;
@@ -403,6 +413,7 @@ export default function ThermalOrdnanceScanner({
     };
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imgLoading, imgError, scanNonce]);
 
   // Fetch real OpenStreetMap structures inside base perimeter
@@ -636,6 +647,19 @@ export default function ThermalOrdnanceScanner({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onToggleSound}
+              title={soundEnabled ? 'បិទសំឡេងស្កេន' : 'បើកសំឡេងស្កេន'}
+              aria-label={soundEnabled ? 'បិទសំឡេងស្កេន' : 'បើកសំឡេងស្កេន'}
+              className={`p-1.5 rounded-lg border transition-colors ${
+                soundEnabled
+                  ? 'bg-orange-500/15 border-orange-500/45 text-orange-300 hover:bg-orange-500/25'
+                  : 'bg-[#121C2C] border-slate-700/80 text-slate-400 hover:text-white'
+              }`}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
             <button
               type="button"
               onClick={() => setScanNonce((n) => n + 1)}

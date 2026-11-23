@@ -1,4 +1,14 @@
-import { Crosshair, Loader2, Pause, Play, Radar, RotateCcw, Satellite } from 'lucide-react';
+import {
+  Crosshair,
+  Loader2,
+  Pause,
+  Play,
+  Radar,
+  RotateCcw,
+  Satellite,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import {
   bearingToCompassKm,
   BRANCH_META,
@@ -25,6 +35,8 @@ interface RadarScanPanelProps {
   isScanning: boolean;
   onToggleScanning: () => void;
   onResetSweep: () => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   scaleFilter: RadarTargetFilter;
   onChangeScaleFilter: (scale: RadarTargetFilter) => void;
   activePresetId: string;
@@ -67,6 +79,8 @@ export default function RadarScanPanel({
   isScanning,
   onToggleScanning,
   onResetSweep,
+  soundEnabled,
+  onToggleSound,
   scaleFilter,
   onChangeScaleFilter,
   activePresetId,
@@ -260,6 +274,20 @@ export default function RadarScanPanel({
           >
             {isScanning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             <span>{isScanning ? 'ផ្អាកស្កេនរ៉ាដា' : 'ចាប់ផ្ដើមស្កេនរ៉ាដា'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleSound}
+            title={soundEnabled ? 'បិទសំឡេងរ៉ាដា' : 'បើកសំឡេងរ៉ាដា'}
+            aria-label={soundEnabled ? 'បិទសំឡេងរ៉ាដា' : 'បើកសំឡេងរ៉ាដា'}
+            className={`px-2.5 py-2 rounded-lg border transition-colors ${
+              soundEnabled
+                ? 'bg-cyan-500/15 border-cyan-500/45 text-cyan-300 hover:bg-cyan-500/25'
+                : 'bg-[#121A27] border-slate-800 text-slate-500 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
           </button>
 
           <button
