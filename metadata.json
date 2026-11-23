@@ -1,0 +1,8 @@
+{
+  "name": "Remix ភូមិសាស្ត្រយោធាថៃ 3D — Thai Military Bases Smart Earth",
+  "description": "កម្មវិធីផែនទីផ្កាយរណប 3D បែប Google Earth ដ៏ឆ្លាតវៃ សម្រាប់ស្វែងរក វាស់ចម្ងាយ និងវិភាគទីតាំងមូលដ្ឋានយោធាសំខាន់ៗនៅប្រទេសថៃ។",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
